@@ -1,0 +1,36 @@
+# 环境变量（含 API 密钥）
+.env
+
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+dist-new/
+
+# AI 生成的图片（体积大，本地持久化用）
+server/generated/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+._*
+
+# 日志
+*.log
+npm-debug.log*
+
+# Vite 缓存
+.vite/
+
+# 临时文件
+/tmp/
+/temp/
+.github_deploy_key*
+.github_deploy_key*
