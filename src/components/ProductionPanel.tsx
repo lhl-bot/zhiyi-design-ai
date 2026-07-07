@@ -79,7 +79,7 @@ export function ProductionPanel({ customerCode, customerName }: Props) {
             {summary.currency === "USD" ? "$" : "¥"}
             {(summary.avgContractAmount / 10000).toFixed(1)}万
           </strong>
-          <span>均价</span>
+          <span>均单金额</span>
         </div>
       </div>
 

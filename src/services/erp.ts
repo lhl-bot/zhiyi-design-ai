@@ -74,6 +74,7 @@ export async function fetchGenImages(payload: {
   customerId?: string
   customerName?: string
   title?: string
+  lookMeta?: Record<string, unknown>
 }): Promise<string[]> {
   const response = await fetch("/api/genimage", {
     method: "POST",
@@ -104,6 +105,19 @@ export interface SavedImageMeta {
   customerId: string | null
   customerName: string | null
   title: string | null
+  score?: number | null
+  trendScore?: number | null
+  commercialScore?: number | null
+  estimatedCost?: number | null
+  sourceMode?: string | null
+  selected?: boolean | null
+  reviewStatus?: string | null
+  note?: string | null
+  palette?: string[] | null
+  keyDetails?: string[] | null
+  revisionAdvice?: string | null
+  designDirection?: string | null
+  version?: number | null
 }
 
 /** 获取后端所有已保存的图片及其元数据 */

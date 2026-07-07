@@ -199,7 +199,7 @@ function buildTechPackHTML({ look, customer, erpSummary, cost }) {
   <div class="block span2" style="grid-row: span 2;">
     <div class="block-title">款式图 / 效果图</div>
     <div class="sketch-area">
-      ${look.image && !look.image.startsWith("data:image/svg")
+      ${look.image
         ? `<img src="${look.image}" alt="${look.title}" />`
         : '<div class="sketch-placeholder" style="color:#bbb;font-size:12px;text-align:center;padding:50px 30px">款式效果图<br>（正面 / 背面）</div>'
       }

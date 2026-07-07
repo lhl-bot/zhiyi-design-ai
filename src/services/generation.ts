@@ -2,6 +2,7 @@ import type { CustomerProfile, CostEstimate, CustomerTrend, ErpCustomerSummary, 
 import type { BrandIntel } from "../data/brandIntel"
 import { getTechSketchDataURL } from "./techSketch"
 import { SCORE_THRESHOLD, CATEGORY_REGEX, ACCESSORY_REGEX, FABRIC_REGEX, CRAFT_REGEX } from "../constants"
+import { reviewSummaryForPrompt, userReviewSignalsOf, verifiedUserReviewSignalsOf } from "../utils/customerReviews"
 
 // ─── 品类词库（按大类分组，确保每批款式覆盖不同品类）────────────────────
 const nounsByCategory: Record<string, string[]> = {
@@ -333,8 +334,13 @@ function buildTrendBlurb(customer: CustomerProfile, erp?: ErpContext | null): st
 
 function buildExternalBlurb(customer: CustomerProfile, erp?: ErpContext | null): string {
   const parts: string[] = []
+  const reviewSummary = reviewSummaryForPrompt(customer)
+  if (reviewSummary) parts.push(`用户评价/采集状态：${reviewSummary}`)
   if (customer.externalSignals?.length) {
-    const insights = customer.externalSignals.slice(0, 3).map((s) => `${s.source}:${s.insight}`).join("；")
+    const insights = customer.externalSignals
+      .slice(0, 3)
+      .map((s) => `${s.source}:${s.insight}，辅助动作:${s.designAction}`)
+      .join("；")
     if (insights) parts.push(`消费者/渠道反馈：${insights}`)
   }
   if (erp?.intel) {
@@ -412,6 +418,13 @@ export function buildLookImagePrompt(opts: {
   const aesthetic = intel?.aesthetic ? `品牌调性：${clip(intel.aesthetic, 40)}；` : ""
   const trendLine = intel?.trendDirection ? `呼应当季趋势：${clip(intel.trendDirection, 52)}；` : ""
   const seasonNote = seasonTrends[settings.season]
+  const reviewText = reviewSummaryForPrompt(customer)
+  const verifiedReviewCount = verifiedUserReviewSignalsOf(customer).length
+  const reviewDirective = reviewText
+    ? `用户评价与采集状态：${clip(reviewText, 220)}；${verifiedReviewCount ? "已采集评价作为强约束，回应差评痛点并保留好评点。" : ""}待采集/主体确认信息作为弱约束和核验提醒，不要虚构用户痛点。`
+    : ""
+  const sourceContext = buildExternalBlurb(customer, erp)
+  const sourceDirective = sourceContext ? `综合数据辅助：${clip(sourceContext, 220)}` : ""
   // 增强生图质量的关键段落
   return [
     `Professional fashion product photography. ${genderLead}「${customer.name}」${settings.season} ${genderTag}${category}。`,
@@ -419,6 +432,8 @@ export function buildLookImagePrompt(opts: {
     `${brief}。当季设计语境：${seasonNote?.mood || ""}。`,
     `${aesthetic}风格标签：${customer.styleTags.slice(0, 4).join("、")}；廓形：${customer.silhouette}；色彩：${colors}${mainColor}；面料：${fabrics}。`,
     trendLine,
+    reviewDirective,
+    sourceDirective,
     fusion,
     `Garment design requirements: Fully realized wearable garment, clean front silhouette, clearly defined collar/placket/pockets/cuffs/hem with visible seam lines and stitching details, commercially producible pattern cutting, refined modern proportions.`,
     `Image specifications: ${model} full-body front view on seamless white or very light gray studio background, even soft diffused professional lighting, fabric texture and drape clearly visible, crisp focus, high-end e-commerce editorial quality, subtle shadow on floor for depth.`,
@@ -603,7 +618,8 @@ export async function generateLooks(opts: {
     const categoryMatch = directionLen > 0 ? Math.min(15, directionLen * 3) : 10
     const creativityBonus = settings.creativity >= 7 ? 5 : settings.creativity >= 4 ? 3 : 1
     const maturityBonus = customer.maturity === "数据充足" ? 8 : customer.maturity === "需设计师补标" ? 4 : 2
-    const baseScore = isLineArt ? 100 : Math.min(98, 60 + categoryMatch + creativityBonus + maturityBonus + (seed % 8))
+    const reviewBonus = verifiedUserReviewSignalsOf(customer).length ? 3 : userReviewSignalsOf(customer).length ? 1 : 0
+    const baseScore = isLineArt ? 100 : Math.min(98, 60 + categoryMatch + creativityBonus + maturityBonus + reviewBonus + (seed % 8))
     const trendScore = isLineArt ? 0 : Math.min(99, baseScore - 3 + ((seed * 7) % 10))
     const commercialScore = isLineArt ? 0 : Math.min(99, baseScore - 2 + ((seed * 11) % 8))
     const score = isLineArt ? 100 : Math.round(trendScore * 0.45 + commercialScore * 0.55)

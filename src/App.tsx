@@ -16,7 +16,6 @@ import { buildMarkdownExport, buildTechPackMarkdown, downloadExcel, downloadJson
 import { DashboardView } from "./components/DashboardView"
 import { ComparisonView } from "./components/ComparisonView"
 import { MoodBoardView } from "./components/MoodBoardView"
-import { LaunchBoardView } from "./components/LaunchBoardView"
 import { SidebarView } from "./components/SidebarView"
 import { TrendSection } from "./components/TrendSection"
 import { LookDetail } from "./components/LookDetail"
@@ -33,7 +32,7 @@ const storageVersion = STORAGE_VERSION
 const minLookCount = MIN_LOOK_COUNT
 const maxLookCount = MAX_LOOK_COUNT
 
-type ViewType = "workbench" | "dashboard" | "comparison" | "moodboard" | "launchboard" | "gallery"
+type ViewType = "workbench" | "dashboard" | "comparison" | "moodboard" | "gallery"
 
 const defaultSettings: GenerationSettings = DEFAULT_GENERATION_SETTINGS
 const defaultApiConfig: ApiConfig = DEFAULT_API_CONFIG
@@ -58,6 +57,7 @@ const materialLibrary = [
   { name: "棉涤抓绒", weight: "280-360gsm", composition: "Cotton/Poly", categories: ["卫衣"], risk: "克重高会影响运费和蓬松度", price: "$3.0-4.6/m" },
 ]
 const colorLibrary = ["#2f3a34", "#879582", "#d9ded2", "#3c332c", "#b8875d", "#efe0cf", "#24364b", "#8aa0b5", "#f1ece1", "#6f6a61", "#c9c1b5", "#f5f1e8"]
+const defaultCustomerId = seededCustomers.find((customer) => customer.id === "tj")?.id ?? seededCustomers[0].id
 type DataSource = "erp" | "master-only" | "none" | "loading" | "error"
 type ResultFilter = "all" | "selected" | "recommended" | "draft" | ReviewStatus
 type ResultSort = "newest" | "score" | "trend" | "commercial"
@@ -76,7 +76,7 @@ export function App() {
   const [profiles, setProfiles] = useState<CustomerProfile[]>(() => initialState?.customers?.length ? initialState.customers : seededCustomers)
   const [looks, setLooks] = useState<GeneratedLook[]>(() => initialState?.looks ?? [])
   const [apiConfig, setApiConfig] = useState<ApiConfig>(() => normalizeApiConfig(initialState))
-  const [selectedCustomerId, setSelectedCustomerId] = useState(profiles[0]?.id ?? seededCustomers[0].id)
+  const [selectedCustomerId, setSelectedCustomerId] = useState(profiles.find((customer) => customer.id === defaultCustomerId)?.id ?? profiles[0]?.id ?? defaultCustomerId)
   const [settings, setSettings] = useState<GenerationSettings>(defaultSettings)
   const [erpSummaries, setErpSummaries] = useState<Record<string, ErpCustomerSummary>>({})
   const [appliedErpIds, setAppliedErpIds] = useState<string[]>([])
@@ -159,19 +159,21 @@ export function App() {
               title: img.title || "已保存款式",
               prompt: img.prompt || "",
               image: img.url,
-              score: 0,
-              trendScore: 0,
-              commercialScore: 0,
-              estimatedCost: 0,
-              sourceMode: "定向出款",
-              selected: false,
-              reviewStatus: "待看",
-              note: "",
-              palette: [],
-              keyDetails: [],
-              revisionAdvice: "",
+              score: Number(img.score ?? 0),
+              trendScore: Number(img.trendScore ?? 0),
+              commercialScore: Number(img.commercialScore ?? 0),
+              estimatedCost: Number(img.estimatedCost ?? 0),
+              sourceMode: (img.sourceMode === "参考图融合" || img.sourceMode === "线稿图" ? img.sourceMode : "定向出款"),
+              selected: Boolean(img.selected),
+              reviewStatus: (img.reviewStatus === "入选" || img.reviewStatus === "待修改" || img.reviewStatus === "淘汰") ? img.reviewStatus : "待看",
+              note: img.note || "",
+              palette: Array.isArray(img.palette) ? img.palette : [],
+              keyDetails: Array.isArray(img.keyDetails) ? img.keyDetails : [],
+              revisionAdvice: img.revisionAdvice || "",
               createdAt: img.createdAt ? new Date(img.createdAt).toLocaleString("zh-CN") : "",
               imageStatus: "model-ready",
+              designDirection: img.designDirection || undefined,
+              version: img.version ?? undefined,
             })
           }
           return [...prev, ...restored]
@@ -195,10 +197,15 @@ export function App() {
     setErpLoadingCustomerId(customer.id)
     setErpErrors((c) => { const n = { ...c }; delete n[customer.id]; return n })
     try {
-      const [summary, trend] = await Promise.all([
-        fetchErpCustomerSummary(customer.erpCode ?? customer.name).catch(() => null),
-        fetchErpCustomerTrend(customer.erpCode ?? customer.name).catch(() => null),
+      const [summaryResult, trendResult] = await Promise.allSettled([
+        fetchErpCustomerSummary(customer.erpCode ?? customer.name),
+        fetchErpCustomerTrend(customer.erpCode ?? customer.name),
       ])
+      if (summaryResult.status === "rejected") {
+        throw summaryResult.reason
+      }
+      const summary = summaryResult.value
+      const trend = trendResult.status === "fulfilled" ? trendResult.value : null
       if (summary) {
         setErpSummaries((c) => ({ ...c, [customer.id]: summary }))
         if (summary.suggestedProfilePatch && !appliedErpIds.includes(customer.id)) {
@@ -237,6 +244,7 @@ export function App() {
   async function handleGenerate(mode: GeneratedLook["sourceMode"]) {
     if (isGenerating) return; setIsGenerating(true); setGenProgress(null)
     try {
+      const useArk = apiConfig.provider === "ark"
       const generated = await generateLooks({
         customer: selectedCustomer, settings, mode,
         referenceNote: referencePreview ? referenceNote : undefined,
@@ -245,26 +253,39 @@ export function App() {
       if (generated.length) {
         const withImages = generated.map((l) => {
           const localPreview = buildLocalPreviewImage(l)
-          return { ...l, image: localPreview, imageStatus: "local-preview" as const, createdAt: new Date().toLocaleString("zh-CN") }
+          return { ...l, image: localPreview, imageStatus: useArk ? "model-generating" as const : "local-preview" as const, createdAt: new Date().toLocaleString("zh-CN") }
         })
         setLooks((prev) => [...prev, ...withImages])
-        // 异步逐款生成真实图片
+        if (!useArk) {
+          setToast(`已生成 ${generated.length} 款本地预览`)
+          return
+        }
         const total = withImages.length; setGenProgress({ done: 0, total, ok: 0, fail: 0 })
-        withImages.forEach((look, i) => {
-          fetchGenImages({ prompt: look.prompt, count: 1, arkKey: apiConfig.arkKey, customerId: selectedCustomer.id, customerName: selectedCustomer.name, title: look.title })
+        withImages.forEach((look) => {
+          fetchGenImages({
+            prompt: look.prompt,
+            count: 1,
+            arkKey: apiConfig.arkKey,
+            referenceImage: mode === "参考图融合" ? referencePreview ?? undefined : undefined,
+            customerId: selectedCustomer.id,
+            customerName: selectedCustomer.name,
+            title: look.title,
+            lookMeta: savedLookMeta(look),
+          })
             .then((images) => {
               const imageUrl = images[0] ?? ""
               setLooks((prev) => prev.map((l) =>
-                l.id === look.id ? { ...l, image: imageUrl || l.image, imageStatus: imageUrl ? "model-ready" : "model-failed" } : l
+                l.id === look.id ? { ...l, image: imageUrl || l.image, imageStatus: imageUrl ? "model-ready" : "model-failed", imageError: imageUrl ? undefined : "模型未返回图片" } : l
               ))
               setGenProgress((p) => p ? { ...p, done: p.done + 1, ok: images.length > 0 ? p.ok + 1 : p.ok } : null)
             })
-            .catch(() => {
-              setLooks((prev) => prev.map((l) => l.id === look.id ? { ...l, imageStatus: "model-failed" } : l))
+            .catch((err) => {
+              const message = err instanceof Error ? err.message : "真实出图失败"
+              setLooks((prev) => prev.map((l) => l.id === look.id ? { ...l, imageStatus: "model-failed", imageError: message } : l))
               setGenProgress((p) => p ? { ...p, done: p.done + 1, fail: p.fail + 1 } : null)
             })
         })
-        setToast(`已生成 ${generated.length} 款设计`)
+        setToast(`已生成 ${generated.length} 款设计，正在真实出图`)
       }
     } catch (err) { setToast("生成失败：" + (err instanceof Error ? err.message : "未知错误")) }
     finally { setIsGenerating(false) }
@@ -299,6 +320,7 @@ export function App() {
   async function copyLookPrompt(look: GeneratedLook) { const ok = await copyText(look.prompt); setToast(ok ? `已复制「${look.title}」提示词` : "复制失败") }
   function resetCurrentCustomerLooks() {
     if (!customerLooks.length) return; if (!window.confirm(`确认清空 ${selectedCustomer.name} 的 ${customerLooks.length} 款记录吗？`)) return
+    void Promise.allSettled(customerLooks.map((look) => deleteSavedImage(look.image)))
     setLooks((c) => c.filter((l) => l.customerId !== selectedCustomer.id)); setToast(`已清空 ${selectedCustomer.name} 的记录`)
   }
   function exportTechPack(look: GeneratedLook) {
@@ -315,8 +337,33 @@ export function App() {
   }
   async function handleIterate(look: GeneratedLook, modification: string) {
     const iterated = await generateIteratedLook({ baseLook: look, customer: selectedCustomer, settings, modification, erp: undefined })
-    const withImage = { ...iterated, image: "", imageStatus: "model-generating" as const, createdAt: new Date().toLocaleString("zh-CN") }
+    const localPreview = buildLocalPreviewImage(iterated)
+    const useArk = apiConfig.provider === "ark"
+    const withImage = { ...iterated, image: localPreview, imageStatus: useArk ? "model-generating" as const : "local-preview" as const, createdAt: new Date().toLocaleString("zh-CN") }
     setLooks((c) => [...c, withImage]); setToast(`已生成 V${iterated.version ?? 2}：「${iterated.title}」`)
+    if (!useArk) return
+    fetchGenImages({
+      prompt: iterated.prompt,
+      count: 1,
+      arkKey: apiConfig.arkKey,
+      referenceImage: look.image && !look.image.startsWith("data:image/svg") ? look.image : undefined,
+      customerId: selectedCustomer.id,
+      customerName: selectedCustomer.name,
+      title: iterated.title,
+      lookMeta: savedLookMeta(iterated),
+    })
+      .then((images) => {
+        const imageUrl = images[0] ?? ""
+        setLooks((prev) => prev.map((l) => l.id === withImage.id ? { ...l, image: imageUrl || l.image, imageStatus: imageUrl ? "model-ready" : "model-failed", imageError: imageUrl ? undefined : "模型未返回图片" } : l))
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : "真实出图失败"
+        setLooks((prev) => prev.map((l) => l.id === withImage.id ? { ...l, imageStatus: "model-failed", imageError: message } : l))
+      })
+  }
+  async function deleteLook(look: GeneratedLook) {
+    await deleteSavedImage(look.image)
+    setLooks((c) => c.filter((l) => l.id !== look.id))
   }
   function getComparisonForLook(look: GeneratedLook) { return compareLookWithHistory({ look, customer: selectedCustomer, erpSummary: erpSummaries[selectedCustomer.id] ?? null, trend: trendByCustomer[selectedCustomer.id] ?? null }) }
   function getCostEstimate(look: GeneratedLook) { return estimateCost(look, selectedCustomer, erpSummaries[selectedCustomer.id] ?? null) }
@@ -351,9 +398,6 @@ export function App() {
       )}
       {activeView === "moodboard" && (
         <div className="page"><MoodBoardView looks={looks} customerNames={Object.fromEntries(profiles.map((p) => [p.id, p.name]))} /></div>
-      )}
-      {activeView === "launchboard" && (
-        <div className="page"><LaunchBoardView /></div>
       )}
       {activeView === "gallery" && (
         <ImageGalleryView />
@@ -466,7 +510,7 @@ export function App() {
                   onModificationNote={(note) => updateLookModificationNote(look.id, note)}
                   onCopyPrompt={() => copyLookPrompt(look)}
                   onDetail={() => setDetailLook(look)}
-                  onDelete={() => setLooks((c) => c.filter((l) => l.id !== look.id))}
+                  onDelete={() => deleteLook(look)}
                   onDownload={() => { const a = document.createElement("a"); a.href = look.image; a.download = `${look.title}.png`; a.click() }}
                   onExportTechPack={() => exportLookTechPackExcel(look)}
                   onExportPDF={() => exportLookTechPackPDF(look)}
@@ -516,6 +560,24 @@ function loadState(): StoredState | null {
 function normalizeApiConfig(state: StoredState | null): ApiConfig {
   if (!state?.apiConfig) return defaultApiConfig
   return { ...defaultApiConfig, ...state.apiConfig }
+}
+
+function savedLookMeta(look: GeneratedLook) {
+  return {
+    score: look.score,
+    trendScore: look.trendScore,
+    commercialScore: look.commercialScore,
+    estimatedCost: look.estimatedCost,
+    sourceMode: look.sourceMode,
+    selected: look.selected,
+    reviewStatus: look.reviewStatus ?? (look.selected ? "入选" : "待看"),
+    note: look.note,
+    palette: look.palette,
+    keyDetails: look.keyDetails,
+    revisionAdvice: look.revisionAdvice,
+    designDirection: look.designDirection ?? null,
+    version: look.version ?? null,
+  }
 }
 
 function filterLooks(looks: GeneratedLook[], filter: ResultFilter) {

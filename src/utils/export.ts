@@ -1,5 +1,6 @@
-import type { CostEstimate, CustomerProfile, ErpCustomerSummary, GeneratedLook, TechPackData } from "../types"
+import type { CostEstimate, CustomerProfile, ErpCustomerSummary, GeneratedLook, TechPackData, UserReviewSignal } from "../types"
 import { CATEGORY_REGEX, ACCESSORY_REGEX, FABRIC_REGEX, CRAFT_REGEX } from "../constants"
+import { userReviewSignalsOf } from "./customerReviews"
 
 /** HTML 实体转义，防止 XSS */
 function escapeHtml(value: string): string {
@@ -15,6 +16,27 @@ function escapeMarkdown(value: string) {
   return escapeHtml(value).replace(/\|/g, "\\|")
 }
 
+function reviewStatusText(status: UserReviewSignal["status"]) {
+  if (status === "verified") return "已采集"
+  if (status === "identity-only") return "已确认主体"
+  return "待采集"
+}
+
+function reviewPromptWeightText(status: UserReviewSignal["status"]) {
+  return status === "verified" ? "强约束辅助出图" : "弱约束辅助出图"
+}
+
+function formatReviewExport(customer: CustomerProfile) {
+  const userReviews = userReviewSignalsOf(customer)
+  if (!userReviews.length) return ""
+  return `用户评价数据：${userReviews.map((review) => {
+    const praise = review.praised.length ? review.praised.join("、") : "待采集真实商品评价"
+    const pain = review.painPoints.length ? review.painPoints.join("、") : "待采集真实商品评价"
+    const source = review.sourceUrl ? `${review.source} ${review.sourceUrl}` : review.source
+    return `${source}（${reviewStatusText(review.status)}，${reviewPromptWeightText(review.status)}，${review.sampleLabel}）；好评点：${praise}；痛点：${pain}；设计动作：${review.designAction}`
+  }).join(" / ")}`
+}
+
 export function buildMarkdownExport({
   customer,
   looks
@@ -25,6 +47,7 @@ export function buildMarkdownExport({
   const selectedLooks = looks.filter((look) => look.selected)
   const totalCost = looks.reduce((sum, look) => sum + look.estimatedCost, 0)
   const reviewLooks = looks.filter((look) => (look.reviewStatus ?? (look.selected ? "入选" : "待看")) !== "淘汰")
+  const reviewExport = formatReviewExport(customer)
 
   return [
     `# ${customer.name} 设计评审包`,
@@ -33,6 +56,7 @@ export function buildMarkdownExport({
     `客户定位：${customer.positioning}`,
     `风格标签：${customer.styleTags.join("、")}`,
     `趋势判断：${customer.trendPrediction}`,
+    reviewExport,
     `本批生成数量：${looks.length}`,
     `已筛选款式：${selectedLooks.length}`,
     `预估API成本：¥${totalCost.toFixed(2)}`,

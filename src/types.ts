@@ -22,6 +22,20 @@ export interface ExternalSignal {
   designAction: string
 }
 
+export interface UserReviewSignal {
+  source: string
+  sourceUrl?: string
+  sampleLabel: string
+  status: "verified" | "pending" | "identity-only"
+  productScope: string
+  sentiment: "正向" | "负向" | "混合"
+  praised: string[]
+  painPoints: string[]
+  designAction: string
+  confidence: "高" | "中" | "低"
+  notes?: string[]
+}
+
 export interface CustomerProfile {
   id: string
   name: string
@@ -38,6 +52,7 @@ export interface CustomerProfile {
   representativeStyles: StyleImage[]
   erpInsight: ErpInsight
   externalSignals: ExternalSignal[]
+  userReviews?: UserReviewSignal[]
   risks: string[]
 }
 
