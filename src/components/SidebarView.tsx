@@ -1,6 +1,6 @@
-import { ClipboardList, Image, LayoutDashboard, Palette, Sparkles, Users } from "lucide-react"
+import { Image, LayoutDashboard, Palette, Sparkles, Users } from "lucide-react"
 
-type ViewType = "workbench" | "dashboard" | "comparison" | "moodboard" | "launchboard" | "gallery"
+type ViewType = "workbench" | "dashboard" | "comparison" | "moodboard" | "gallery"
 
 interface SidebarViewProps {
   activeView: ViewType
@@ -13,7 +13,6 @@ export function SidebarView({ activeView, onNavigate }: SidebarViewProps) {
     { key: "dashboard", label: "出款看板", icon: <LayoutDashboard size={20} /> },
     { key: "comparison", label: "客户对比", icon: <Users size={20} /> },
     { key: "moodboard", label: "灵感板", icon: <Palette size={20} /> },
-    { key: "launchboard", label: "上线进度", icon: <ClipboardList size={20} /> },
     { key: "gallery", label: "图片库", icon: <Image size={20} /> },
   ]
 

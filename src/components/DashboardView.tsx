@@ -11,6 +11,11 @@ interface Props {
 
 const seasons = ["全部", "2026AW", "2026SS", "2025AW", "2025SS"]
 
+function seasonOfLook(look: GeneratedLook) {
+  const text = `${look.prompt} ${look.title} ${look.designDirection ?? ""}`
+  return seasons.find((season) => season !== "全部" && text.includes(season)) ?? "未标注"
+}
+
 export function DashboardView({ profiles, looks, onSelectCustomer, onSwitchToWorkbench }: Props) {
   const [seasonFilter, setSeasonFilter] = useState("全部")
   const [marketFilter, setMarketFilter] = useState("全部")
@@ -49,14 +54,13 @@ export function DashboardView({ profiles, looks, onSelectCustomer, onSwitchToWor
       : profiles.filter((p) => p.market === marketFilter)
 
     return filteredProfiles.map((profile) => {
-      const customerLooks = looks.filter((l) => l.customerId === profile.id)
+      const customerLooks = looks.filter((l) => l.customerId === profile.id && (seasonFilter === "全部" || seasonOfLook(l) === seasonFilter))
       const seasonBreakdown: Record<string, { total: number; selected: number }> = {}
       customerLooks.forEach((l) => {
-        // 出款 look 可能包含 season 信息，但 GeneratedLook 中没有直接的 season 字段
-        // 所以所有款都归入「全部」
-        if (!seasonBreakdown["全部"]) seasonBreakdown["全部"] = { total: 0, selected: 0 }
-        seasonBreakdown["全部"].total++
-        if (l.selected) seasonBreakdown["全部"].selected++
+        const season = seasonOfLook(l)
+        if (!seasonBreakdown[season]) seasonBreakdown[season] = { total: 0, selected: 0 }
+        seasonBreakdown[season].total++
+        if (l.selected) seasonBreakdown[season].selected++
       })
       const selected = customerLooks.filter((l) => l.selected).length
       return {
@@ -66,7 +70,7 @@ export function DashboardView({ profiles, looks, onSelectCustomer, onSwitchToWor
         seasonBreakdown,
       }
     })
-  }, [profiles, looks, marketFilter])
+  }, [profiles, looks, marketFilter, seasonFilter])
 
   function handleCustomerClick(profileId: string) {
     onSelectCustomer(profileId)
@@ -111,6 +115,14 @@ export function DashboardView({ profiles, looks, onSelectCustomer, onSwitchToWor
             ))}
           </select>
         </label>
+        <label className="sort-control">
+          <span>季节</span>
+          <select value={seasonFilter} onChange={(e) => setSeasonFilter(e.target.value)}>
+            {seasons.map((s) => (
+              <option key={s} value={s}>{s === "全部" ? "全部季节" : s}</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {/* 客户出款网格 */}
@@ -150,9 +162,9 @@ export function DashboardView({ profiles, looks, onSelectCustomer, onSwitchToWor
               </div>
               <div className="dashboard-stat">
                 <Clock size={14} />
-                <strong>{seasonBreakdown["全部"]?.total ?? 0}</strong>
-                <span>当季</span>
-              </div>
+                  <strong>{seasonFilter === "全部" ? total : seasonBreakdown[seasonFilter]?.total ?? 0}</strong>
+                  <span>{seasonFilter === "全部" ? "全部" : seasonFilter}</span>
+                </div>
             </div>
 
             {/* 最近款式缩略图 */}

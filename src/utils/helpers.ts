@@ -59,6 +59,7 @@ export function srcClass(source: string): string {
     case "官网": return "web"
     case "品牌": return "web"
     case "联网": return "live"
+    case "用户评价": return "review"
     case "AI": return "ai"
     default: return "muted"
   }

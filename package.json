@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "cors": "^2.8.6",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "imagetracerjs": "^1.2.6",
     "lucide-react": "^0.468.0",
     "mssql": "^12.5.5",
+    "puppeteer": "^25.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

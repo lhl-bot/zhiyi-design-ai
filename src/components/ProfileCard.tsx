@@ -1,8 +1,9 @@
-import { Database, Globe, Loader2, Sparkles } from "lucide-react"
+import { Database, Globe, Loader2, MessageSquareText, Sparkles } from "lucide-react"
 import type { ApiConfig, CustomerProfile, CustomerTrend, IntelResult } from "../types"
 import { brandIntel } from "../data/brandIntel"
 import { TrendSection } from "./TrendSection"
 import { intelSourceLabel, safeHost, srcClass } from "../utils/helpers"
+import { userReviewSignalsOf } from "../utils/customerReviews"
 
 type DataSource = "erp" | "master-only" | "none" | "loading" | "error"
 
@@ -39,6 +40,14 @@ export function ProfileCard({
 }: ProfileCardProps) {
   const brand = brandIntel[customer.id]
   const sourceLabel = intelSourceLabel(intelSource)
+  const reviewSignals = userReviewSignalsOf(customer)
+  const verifiedReviewCount = reviewSignals.filter((review) => review.status === "verified").length
+  const channelSignals = customer.externalSignals.filter((signal) => !/评论|评价|反馈/.test(signal.source))
+  const reviewStatusLabel = (status: typeof reviewSignals[number]["status"]) => {
+    if (status === "verified") return "已采集"
+    if (status === "identity-only") return "已确认主体"
+    return "待采集"
+  }
   const tile = (label: string, value: string) => (
     <div className="info-tile">
       <span>{label}</span>
@@ -103,6 +112,7 @@ export function ProfileCard({
         <div className="src-legend">
           <em className={`src src-${srcClass(erpLabel)}`}>{erpLabel === "ERP" ? "ERP 真实订单" : "示例画像"}</em>
           {brand && <em className="src src-web">品牌公开信息</em>}
+          {reviewSignals.length > 0 && <em className="src src-review">用户评价数据{verifiedReviewCount ? "" : "待补"}</em>}
           <em className={intel ? "src src-live" : "src src-muted"}>{intel ? "AI 联网分析" : "AI 联网分析未拉取"}</em>
         </div>
       </div>
@@ -134,19 +144,59 @@ export function ProfileCard({
           </ul>
         </div>
       ) : (
-        <p className="source-foot">想把品牌官网定位、当季趋势也并入上面的汇总？点下方「AI 联网智能分析」，结果会自动合并到这里。</p>
+        <p className="source-foot">想把品牌官网定位、当季趋势和用户评价也并入上面的汇总？点下方「AI 联网智能分析」，结果会自动合并到这里。</p>
+      )}
+
+      {reviewSignals.length > 0 && (
+        <div className="review-data-panel">
+          <div className="review-data-head">
+            <MessageSquareText size={15} />
+            <strong>客户产品评价来源 → 设计修正</strong>
+            <span>{verifiedReviewCount ? `${verifiedReviewCount} 个强约束` : "弱约束辅助出图"}</span>
+          </div>
+          <div className="review-data-grid">
+            {reviewSignals.slice(0, 2).map((review) => (
+              <article key={`${review.source}-${review.designAction}`} className={`review-data-card review-status-${review.status}`}>
+                <div className="review-data-title">
+                  {review.sourceUrl ? (
+                    <a href={review.sourceUrl} target="_blank" rel="noreferrer">{review.source}</a>
+                  ) : (
+                    <span>{review.source}</span>
+                  )}
+                  <em className={`conf conf-${review.confidence}`}>可信度 {review.confidence}</em>
+                </div>
+                <div className="review-meta">
+                  <span>{reviewStatusLabel(review.status)}</span>
+                  <span>{review.productScope}</span>
+                </div>
+                <p><b>样本：</b>{review.sampleLabel}</p>
+                <p><b>好评点：</b>{review.praised.join("、") || "待采集真实商品评价"}</p>
+                <p><b>痛点：</b>{review.painPoints.join("、") || "待采集真实商品评价"}</p>
+                <small>{review.designAction}</small>
+                {review.status !== "verified" && <small className="review-pending-note">该记录会以弱约束进入 AI 出图提示词，用于提醒采集缺口，不会被当作真实评价。</small>}
+              </article>
+            ))}
+          </div>
+        </div>
       )}
 
       <div className="decision-grid">
         <div className="decision-panel">
           <strong>外部信号 → 设计动作</strong>
-          {customer.externalSignals.slice(0, 2).map((signal) => (
+          {channelSignals.slice(0, 3).map((signal) => (
             <div className="signal-row" key={`${signal.source}-${signal.designAction}`}>
               <span>{signal.source}</span>
               <p>{signal.insight}</p>
               <small>{signal.designAction}</small>
             </div>
           ))}
+          {!channelSignals.length && (
+            <div className="signal-row">
+              <span>待补充</span>
+              <p>暂无可核验的品牌/渠道外部信号。</p>
+              <small>用户评价请以上方“客户产品评价来源”为准。</small>
+            </div>
+          )}
         </div>
         <div className="decision-panel risk-panel">
           <strong>本批风险</strong>

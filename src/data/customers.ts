@@ -49,9 +49,9 @@ export const customers: CustomerProfile[] = [
         designAction: "保留防护卖点，但版型做轻薄，减少登山感。"
       },
       {
-        source: "评论/社媒",
-        insight: "常见吐槽是口袋够多但拿取不顺手。",
-        designAction: "将胸袋和侧袋做差异化入口，提升使用感。"
+        source: "用户评价待补",
+        insight: "口袋使用体验需等真实商品评价确认。",
+        designAction: "暂不作为生成约束；采集到商品评价后再校准口袋入口。"
       }
     ],
     risks: ["功能细节过多会抬高成本", "需要设计师确认工艺可生产性"]
@@ -102,9 +102,9 @@ export const customers: CustomerProfile[] = [
         designAction: "推荐自然纹理面料和可通勤可休闲的款式。"
       },
       {
-        source: "消费者反馈",
-        insight: "消费者关注不透、好打理、不显臃肿。",
-        designAction: "增加里布方案和腰线微调，避免过度宽松。"
+        source: "用户评价待补",
+        insight: "浅色透度和好打理程度需等真实商品评价确认。",
+        designAction: "暂不作为生成约束；先由设计师在打样评审里人工检查。"
       }
     ],
     risks: ["浅色面料需要确认透度", "廓形太宽会影响接受度"]
@@ -150,9 +150,9 @@ export const customers: CustomerProfile[] = [
     },
     externalSignals: [
       {
-        source: "电商评价",
-        insight: "消费者常提到缩水、起球和尺码偏差。",
-        designAction: "优先做预缩面料、抗起球说明和尺码稳定版型。"
+        source: "用户评价待补",
+        insight: "TEE JAYS 真实商品评价尚未采集。",
+        designAction: "暂不写入生成约束，避免把未核验痛点当成客户数据。"
       },
       {
         source: "社媒趋势",
@@ -209,9 +209,9 @@ export const customers: CustomerProfile[] = [
         designAction: "推荐环保棉混纺和可修补细节叙事。"
       },
       {
-        source: "消费者评论",
-        insight: "吐槽集中在裤长和腰围不友好。",
-        designAction: "增加可调节腰袢和多裤长方案。"
+        source: "用户评价待补",
+        insight: "PWT 对应主体未确认，裤长和腰围评价需重新采集。",
+        designAction: "先确认客户映射，再决定是否加入可调腰袢和多裤长方案。"
       }
     ],
     risks: ["需要补充更完整的历史款标签", "工装口袋数量会影响成本"]
@@ -263,9 +263,9 @@ export const customers: CustomerProfile[] = [
         designAction: "推荐可日夜切换的套装和细节衬衫裙。"
       },
       {
-        source: "DTC评价",
-        insight: "吐槽集中在易皱和胸腰比例不适配。",
-        designAction: "选择抗皱垂感面料，版型增加腰部可调。"
+        source: "用户评价待补",
+        insight: "精致女装的易皱和胸腰比例反馈需补充真实评价来源。",
+        designAction: "暂不作为生成约束；相关风险留给设计师评审确认。"
       }
     ],
     risks: ["精致细节需控制打样难度", "浅色垂感面料成本波动"]
@@ -316,9 +316,9 @@ export const customers: CustomerProfile[] = [
         designAction: "每款推荐附带材料卖点和搭配生命周期说明。"
       },
       {
-        source: "评论",
-        insight: "消费者关注保暖但不臃肿。",
-        designAction: "用轻薄保暖层和直线条版型平衡。"
+        source: "用户评价待补",
+        insight: "保暖但不臃肿的评价需补充真实商品样本。",
+        designAction: "暂不作为生成约束；如 ERP 面料显示轻填充，再由订单数据驱动。"
       }
     ],
     risks: ["环保材料供应需提前确认", "基础款差异化表达有限"]
@@ -370,9 +370,9 @@ export const customers: CustomerProfile[] = [
         designAction: "生成款式突出可打包、轻量和拍照效果。"
       },
       {
-        source: "评论",
-        insight: "吐槽集中在透、皱、洗后变形。",
-        designAction: "优先测试面料透度和洗后稳定性。"
+        source: "用户评价待补",
+        insight: "DVH/Cotton Valley 映射未确认，透度、易皱和洗后评价需重新采集。",
+        designAction: "当前不写入生成约束；先完成客户主体确认。"
       }
     ],
     risks: ["印花版权和开发周期需提前确认", "天然面料缩水风险"]
@@ -419,9 +419,9 @@ export const customers: CustomerProfile[] = [
     },
     externalSignals: [
       {
-        source: "电商评价",
-        insight: "消费者重视尺码准确和实际保暖。",
-        designAction: "推荐基础版型和清晰温度场景描述。"
+        source: "用户评价待补",
+        insight: "HUPPA 真实商品评价样本不足。",
+        designAction: "暂不写入生成约束；补采儿童外套评价后再校准保暖和尺码。"
       },
       {
         source: "官网",

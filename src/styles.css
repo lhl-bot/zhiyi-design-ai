@@ -54,6 +54,8 @@ textarea:focus-visible {
 }
 
 .page {
+  width: 100%;
+  min-width: 0;
   max-width: 1280px;
   margin: 0 auto;
   padding: 22px 32px 90px;
@@ -98,8 +100,8 @@ textarea:focus-visible {
 }
 .brand small { color: var(--muted); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
 
-.topbar-right { display: flex; align-items: center; gap: 10px; }
-.customer-pick { display: flex; align-items: center; gap: 8px; }
+.topbar-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.customer-pick { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .customer-pick span { color: var(--muted); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
 .customer-pick select {
   min-width: 150px;
@@ -388,6 +390,97 @@ textarea:focus-visible {
   font-size: 12px;
   line-height: 1.5;
 }
+.review-data-panel {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--ok) 24%, var(--line));
+  border-radius: 6px;
+  background: #fbfcf7;
+}
+.review-data-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--ink);
+}
+.review-data-head strong {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.review-data-head span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+.review-data-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.review-data-card {
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  background: var(--card);
+}
+.review-data-card.review-status-pending,
+.review-data-card.review-status-identity-only {
+  background: #f8fafc;
+}
+.review-data-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.review-data-title span {
+  color: var(--accent-deep);
+  font-size: 12px;
+  font-weight: 700;
+}
+.review-data-title a {
+  color: var(--accent-deep);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.review-data-title a:hover {
+  text-decoration: underline;
+}
+.review-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.review-meta span {
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--line) 55%, white);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+.review-data-card p {
+  margin: 6px 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.review-data-card small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.review-pending-note {
+  color: var(--warn-ink) !important;
+}
 .risk-panel ul {
   margin: 0;
   padding-left: 18px;
@@ -539,6 +632,13 @@ textarea:focus-visible {
   .trend-details { grid-template-columns: repeat(2, 1fr); }
 }
 
+@media (max-width: 480px) {
+  .trend-section { padding: 18px; }
+  .trend-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .trend-details { grid-template-columns: 1fr; }
+  .trend-table-wrap { overflow-x: auto; }
+}
+
 /* ---------- brand intel + AI analysis ---------- */
 .brand-intel, .intel-result {
   margin-top: 18px;
@@ -592,6 +692,7 @@ textarea:focus-visible {
 .src-web { background: var(--accent-tint); color: var(--accent-deep); }
 .src-live { background: #e6ecee; color: #4f656d; }
 .src-ai { background: #ece6db; color: #5d5142; }
+.src-review { background: #eef3e8; color: #4f6d45; }
 .src-sample, .src-muted { background: var(--surface); color: var(--muted); border-color: var(--line); }
 
 .synth-directions {
@@ -1217,7 +1318,8 @@ textarea:focus-visible {
   .generate-controls,
   .topbar-right { width: 100%; }
   .customer-pick { flex: 1; }
-  .customer-pick select { width: 100%; }
+  .customer-pick select { flex: 1; min-width: 0; width: auto; }
+  .topbar-right .secondary-btn { flex: 0 0 auto; }
 }
 
 /* ---------- Feature 1-3: Tech Pack / Iteration / Comparison ---------- */
@@ -1696,7 +1798,8 @@ textarea:focus-visible {
   position: sticky;
   top: 0;
   height: 100vh;
-  width: 72px;
+  width: 176px;
+  flex: 0 0 176px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1705,11 +1808,10 @@ textarea:focus-visible {
   background: var(--ink);
   z-index: 30;
   overflow: hidden;
-  transition: width 0.2s ease;
 }
 
 .sidebar:hover {
-  width: 160px;
+  width: 176px;
 }
 
 .sidebar-brand {
@@ -1757,9 +1859,8 @@ textarea:focus-visible {
 }
 
 .sidebar-item span {
-  opacity: 0;
+  opacity: 1;
   overflow: hidden;
-  transition: opacity 0.15s ease;
 }
 
 .sidebar:hover .sidebar-item span {
@@ -2083,6 +2184,10 @@ textarea:focus-visible {
 }
 
 .comparison-selector.mini {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 14px;
 }
 
@@ -2104,6 +2209,12 @@ textarea:focus-visible {
   font-size: 14px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.comparison-selector.mini .comparison-chip {
+  min-width: 82px;
+  justify-content: center;
+  padding: 10px 16px;
 }
 
 .comparison-chip:hover {
@@ -2767,7 +2878,7 @@ textarea:focus-visible {
   line-height: 1.4;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 900px) {
   .app-shell {
     flex-direction: column;
   }
@@ -3266,10 +3377,19 @@ textarea:focus-visible {
 }
 
 .launch-task-status {
+  border: 0;
   padding: 3px 10px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.launch-task-status:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .launch-task-status.status-done {

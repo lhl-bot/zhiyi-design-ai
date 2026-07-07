@@ -75,6 +75,19 @@ app.get("/api/img", async (_req, res, next) => {
         customerId: meta?.customerId ?? null,
         customerName: meta?.customerName ?? null,
         title: meta?.title ?? null,
+        score: meta?.score ?? null,
+        trendScore: meta?.trendScore ?? null,
+        commercialScore: meta?.commercialScore ?? null,
+        estimatedCost: meta?.estimatedCost ?? null,
+        sourceMode: meta?.sourceMode ?? null,
+        selected: meta?.selected ?? null,
+        reviewStatus: meta?.reviewStatus ?? null,
+        note: meta?.note ?? null,
+        palette: Array.isArray(meta?.palette) ? meta.palette : null,
+        keyDetails: Array.isArray(meta?.keyDetails) ? meta.keyDetails : null,
+        revisionAdvice: meta?.revisionAdvice ?? null,
+        designDirection: meta?.designDirection ?? null,
+        version: meta?.version ?? null,
       })
     }
     // 按文件名（时间戳）倒序
@@ -1217,7 +1230,7 @@ function getArkKey(req) {
 app.post("/api/genimage", async (req, res, next) => {
   try {
     const key = getArkKey(req)
-    const { prompt, count = 1, size, referenceImage, customerId, customerName, title } = req.body ?? {}
+    const { prompt, count = 1, size, referenceImage, customerId, customerName, title, lookMeta } = req.body ?? {}
     if (!prompt) {
       const error = new Error("缺少 prompt")
       error.statusCode = 400
@@ -1338,6 +1351,7 @@ app.post("/api/genimage", async (req, res, next) => {
           customerId: customerId ?? null,
           customerName: customerName ?? null,
           title: title ?? null,
+          ...(lookMeta && typeof lookMeta === "object" ? lookMeta : {}),
         }
         await writeFile(path.join(generatedDir, metaFile), JSON.stringify(meta, null, 2))
         images.push(`/api/img/${file}`)
