@@ -1230,7 +1230,7 @@ function getArkKey(req) {
 app.post("/api/genimage", async (req, res, next) => {
   try {
     const key = getArkKey(req)
-    const { prompt, count = 1, size, referenceImage, customerId, customerName, title, lookMeta } = req.body ?? {}
+    const { prompt, count = 1, size, seed, referenceImage, customerId, customerName, title, lookMeta } = req.body ?? {}
     if (!prompt) {
       const error = new Error("缺少 prompt")
       error.statusCode = 400
@@ -1240,11 +1240,15 @@ app.post("/api/genimage", async (req, res, next) => {
 
     const body = {
       model: process.env.ARK_MODEL || "doubao-seedream-5-0-260128",
-      prompt: String(prompt).slice(0, 1200),
+      prompt: String(prompt).slice(0, 3200),
       size: size || "2K",
       response_format: "url",
       watermark: false,
       stream: false
+    }
+    // 种子参数：同一 seed + 同一 prompt 可复现相同结果
+    if (seed !== undefined) {
+      body.seed = Number(seed)
     }
     if (referenceImage) {
       // 把参考图统一转成 base64 data URI，因为火山方舟无法访问 localhost
@@ -1294,8 +1298,9 @@ app.post("/api/genimage", async (req, res, next) => {
     // 每张图约 30-40 秒，超时按图片数量 × 60 秒计算
     const fetchTimeout = Math.max(60000, n * 60000)
     let response = null
-    let lastConnectError = null
-    for (let attempt = 0; attempt < 2; attempt++) {
+    let lastError = null
+    const maxAttempts = 3
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         response = await fetch("https://ark.cn-beijing.volces.com/api/v3/images/generations", {
           method: "POST",
@@ -1303,20 +1308,49 @@ app.post("/api/genimage", async (req, res, next) => {
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(fetchTimeout)
         })
-        break
+        // 检查是否需要重试的 HTTP 状态码
+        if (response.ok) {
+          break // 成功，退出重试循环
+        }
+        // 400/401 不重试，直接抛出
+        if (response.status === 400 || response.status === 401) {
+          const detail = await response.text().catch(() => "")
+          const error = new Error(`火山方舟报错 ${response.status}：${detail.slice(0, 300)}`)
+          error.statusCode = response.status === 401 ? 401 : 502
+          throw error
+        }
+        // 429/502/503 可重试
+        if (response.status === 429 || response.status === 502 || response.status === 503) {
+          lastError = new Error(`火山方舟返回 ${response.status}`)
+          if (attempt < maxAttempts - 1) {
+            // 优先使用 Retry-After 头
+            const retryAfter = response.headers.get("Retry-After")
+            const delay = retryAfter ? parseInt(retryAfter, 10) * 1000 : 1000 * Math.pow(2, attempt)
+            await new Promise(r => setTimeout(r, delay))
+            continue
+          }
+          break
+        }
+        // 其他非 ok 状态码也不重试
+        const detail = await response.text().catch(() => "")
+        const error = new Error(`火山方舟报错 ${response.status}：${detail.slice(0, 300)}`)
+        error.statusCode = 502
+        throw error
       } catch (fetchError) {
-        lastConnectError = fetchError
+        // 主动抛出的业务错误（带 statusCode）直接向上抛出，不重试
+        if (fetchError.statusCode) {
+          throw fetchError
+        }
+        // 连接级错误（网络/超时）可重试
+        lastError = fetchError
+        if (attempt < maxAttempts - 1) {
+          await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)))
+        }
       }
     }
-    if (!response) {
-      const error = new Error(`连接火山方舟失败（重试多次仍超时）：${lastConnectError?.cause?.code || lastConnectError?.message || "网络问题"}`)
+    if (!response || !response.ok) {
+      const error = new Error(`火山方舟请求失败（重试${maxAttempts}次）：${lastError?.cause?.code || lastError?.message || "网络问题"}`)
       error.statusCode = 504
-      throw error
-    }
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "")
-      const error = new Error(`火山方舟报错 ${response.status}：${detail.slice(0, 300)}`)
-      error.statusCode = response.status === 401 ? 401 : 502
       throw error
     }
     const data = await response.json()

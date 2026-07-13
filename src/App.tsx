@@ -8,6 +8,7 @@ import { brandIntel } from "./data/brandIntel"
 import { deleteSavedImage, fetchErpCustomerSummary, fetchErpCustomerTrend, fetchErpStatus, fetchGenImages, fetchIntel, fetchSavedImages } from "./services/erp"
 import { buildLocalPreviewImage, buildLookImagePrompt, compareLookWithHistory, estimateCost, generateLooks, generateIteratedLook } from "./services/generation"
 import { traceToVector, downloadVectorSVG } from "./services/vectorize"
+import { getTechSketchPngDataURL } from "./services/techSketch"
 import type {
   ApiConfig, ComparisonResult, CostEstimate, CustomerProfile, CustomerTrend,
   ErpCustomerSummary, GeneratedLook, GenerationSettings, IntelResult
@@ -28,6 +29,27 @@ import { SCORE_THRESHOLD, STORAGE_KEY, STORAGE_VERSION, MIN_LOOK_COUNT, MAX_LOOK
 import { copyText, imageStatusMeta, reviewStatusOf, statusTone, srcClass, intelSourceLabel, type ReviewStatus } from "./utils/helpers"
 
 const storageKey = STORAGE_KEY
+
+/** 从 prompt 生成一致性 seed（同 prompt 多次出图结果稳定） */
+function hashForPrompt(prompt: string): number {
+  let h = 0
+  for (let i = 0; i < prompt.length; i++) { h = ((h << 5) - h + prompt.charCodeAt(i)) | 0 }
+  return Math.abs(h) % 2147483647
+}
+
+/** 并发限流：控制同时运行的最大 Promise 数量 */
+async function pLimit<T>(concurrency: number, items: T[], task: (item: T) => Promise<void>): Promise<void> {
+  const executing: Promise<void>[] = []
+  for (const item of items) {
+    const p = task(item)
+    executing.push(p)
+    p.then(() => { executing.splice(executing.indexOf(p), 1) })
+    if (executing.length >= concurrency) {
+      await Promise.race(executing)
+    }
+  }
+  await Promise.all(executing)
+}
 const storageVersion = STORAGE_VERSION
 const minLookCount = MIN_LOOK_COUNT
 const maxLookCount = MAX_LOOK_COUNT
@@ -261,29 +283,37 @@ export function App() {
           return
         }
         const total = withImages.length; setGenProgress({ done: 0, total, ok: 0, fail: 0 })
-        withImages.forEach((look) => {
-          fetchGenImages({
-            prompt: look.prompt,
-            count: 1,
-            arkKey: apiConfig.arkKey,
-            referenceImage: mode === "参考图融合" ? referencePreview ?? undefined : undefined,
-            customerId: selectedCustomer.id,
-            customerName: selectedCustomer.name,
-            title: look.title,
-            lookMeta: savedLookMeta(look),
-          })
-            .then((images) => {
-              const imageUrl = images[0] ?? ""
-              setLooks((prev) => prev.map((l) =>
-                l.id === look.id ? { ...l, image: imageUrl || l.image, imageStatus: imageUrl ? "model-ready" : "model-failed", imageError: imageUrl ? undefined : "模型未返回图片" } : l
-              ))
-              setGenProgress((p) => p ? { ...p, done: p.done + 1, ok: images.length > 0 ? p.ok + 1 : p.ok } : null)
+        await pLimit(2, withImages, async (look) => {
+          // 参考图优先级：参考图融合模式用用户上传图；否则若开启线稿控制则用线稿 PNG 锁定廓形
+          let referenceImage: string | undefined
+          if (mode === "参考图融合") {
+            referenceImage = referencePreview ?? undefined
+          } else if (settings.useSketchControl) {
+            referenceImage = (await getTechSketchPngDataURL(look, selectedCustomer)) ?? undefined
+          }
+          try {
+            const images = await fetchGenImages({
+              prompt: look.prompt,
+              count: 1,
+              size: settings.imageSize,
+              seed: hashForPrompt(look.prompt),
+              arkKey: apiConfig.arkKey,
+              referenceImage,
+              customerId: selectedCustomer.id,
+              customerName: selectedCustomer.name,
+              title: look.title,
+              lookMeta: savedLookMeta(look),
             })
-            .catch((err) => {
-              const message = err instanceof Error ? err.message : "真实出图失败"
-              setLooks((prev) => prev.map((l) => l.id === look.id ? { ...l, imageStatus: "model-failed", imageError: message } : l))
-              setGenProgress((p) => p ? { ...p, done: p.done + 1, fail: p.fail + 1 } : null)
-            })
+            const imageUrl = images[0] ?? ""
+            setLooks((prev) => prev.map((l) =>
+              l.id === look.id ? { ...l, image: imageUrl || l.image, imageStatus: imageUrl ? "model-ready" : "model-failed", imageError: imageUrl ? undefined : "模型未返回图片" } : l
+            ))
+            setGenProgress((p) => p ? { ...p, done: p.done + 1, ok: images.length > 0 ? p.ok + 1 : p.ok } : null)
+          } catch (err) {
+            const message = err instanceof Error ? err.message : "真实出图失败"
+            setLooks((prev) => prev.map((l) => l.id === look.id ? { ...l, imageStatus: "model-failed", imageError: message } : l))
+            setGenProgress((p) => p ? { ...p, done: p.done + 1, fail: p.fail + 1 } : null)
+          }
         })
         setToast(`已生成 ${generated.length} 款设计，正在真实出图`)
       }
@@ -345,6 +375,8 @@ export function App() {
     fetchGenImages({
       prompt: iterated.prompt,
       count: 1,
+      size: settings.imageSize,
+      seed: hashForPrompt(iterated.prompt),
       arkKey: apiConfig.arkKey,
       referenceImage: look.image && !look.image.startsWith("data:image/svg") ? look.image : undefined,
       customerId: selectedCustomer.id,

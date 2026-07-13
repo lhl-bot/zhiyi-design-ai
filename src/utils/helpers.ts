@@ -73,6 +73,11 @@ export function safeHost(url: string): string {
   }
 }
 
+export function clip(text: string, max: number): string {
+  const t = String(text ?? "").trim()
+  return t.length > max ? t.slice(0, max) + "…" : t
+}
+
 export function intelSourceLabel(source: string): string {
   if (source === "agent-reach") return "Agent-Reach 情报"
   if (source === "tavily") return "Tavily 实时联网"

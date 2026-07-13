@@ -77,6 +77,24 @@ export function AdvancedPanel({
           <input type="range" min={1} max={10} value={settings.creativity} onChange={(event) => onSettingsChange({ ...settings, creativity: Number(event.target.value) })} />
         </label>
         <label className="mini-field wide">
+          <span>出图分辨率</span>
+          <select
+            value={settings.imageSize ?? "2K"}
+            onChange={(event) => onSettingsChange({ ...settings, imageSize: event.target.value as "2K" | "4K" })}
+          >
+            <option value="2K">2K（默认・速度快）</option>
+            <option value="4K">4K（细节更锐・较慢较贵）</option>
+          </select>
+        </label>
+        <label className="mini-field wide checkbox-field">
+          <input
+            type="checkbox"
+            checked={settings.useSketchControl ?? false}
+            onChange={(event) => onSettingsChange({ ...settings, useSketchControl: event.target.checked })}
+          />
+          <span>技术线稿结构控制（锁定廓形版型，仅非参考图融合模式生效）</span>
+        </label>
+        <label className="mini-field wide">
           <span>必须保留</span>
           <input value={settings.mustHave} onChange={(event) => onSettingsChange({ ...settings, mustHave: event.target.value })} />
         </label>

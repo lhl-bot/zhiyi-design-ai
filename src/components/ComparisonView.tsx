@@ -2,6 +2,7 @@ import { useMemo, useState } from "react"
 import type { CustomerProfile, GeneratedLook } from "../types"
 import { ArrowRight, Equal } from "lucide-react"
 import { SCORE_THRESHOLD } from "../constants"
+import { competitorIntelOf } from "../utils/competitorIntel"
 
 interface Props {
   profiles: CustomerProfile[]
@@ -10,7 +11,7 @@ interface Props {
 
 export function ComparisonView({ profiles, looks }: Props) {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [tab, setTab] = useState<"overview" | "tags" | "price" | "trends">("overview")
+  const [tab, setTab] = useState<"overview" | "tags" | "price" | "trends" | "competitors">("overview")
 
   const toggleCustomer = (id: string) => {
     setSelectedIds((current) => {
@@ -84,7 +85,45 @@ export function ComparisonView({ profiles, looks }: Props) {
     { key: "tags" as const, label: "风格标签" },
     { key: "price" as const, label: "价格策略" },
     { key: "trends" as const, label: "趋势判断" },
+    { key: "competitors" as const, label: "竞对情报" },
   ]
+
+  // 竞对情报数据
+  const competitorData = useMemo(() => {
+    return selectedProfiles.map((profile) => ({
+      profile,
+      intel: competitorIntelOf(profile.id),
+    })).filter((d) => d.intel && d.intel.competitors.length > 0)
+  }, [selectedProfiles])
+
+  // 共同趋势信号（跨客户相同 topic）
+  const commonTrendSignals = useMemo(() => {
+    if (competitorData.length < 2) return []
+    const topicMap = new Map<string, { topic: string; direction: string; description: string; customers: string[] }>()
+    for (const { profile, intel } of competitorData) {
+      if (!intel) continue
+      for (const t of intel.trendSignals) {
+        const existing = topicMap.get(t.topic)
+        if (existing) {
+          existing.customers.push(profile.name)
+        } else {
+          topicMap.set(t.topic, {
+            topic: t.topic,
+            direction: t.direction,
+            description: t.description,
+            customers: [profile.name],
+          })
+        }
+      }
+    }
+    return [...topicMap.values()].filter((t) => t.customers.length >= 2)
+  }, [competitorData])
+
+  const trendArrow = (direction: string) => {
+    if (direction === "上升") return "↑"
+    if (direction === "下降") return "↓"
+    return "→"
+  }
 
   if (selectedProfiles.length === 0) {
     return (
@@ -334,6 +373,104 @@ export function ComparisonView({ profiles, looks }: Props) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* 竞对情报对比 */}
+      {tab === "competitors" && (
+        <div className="comparison-content">
+          {competitorData.length === 0 ? (
+            <div className="comparison-empty">
+              <p>所选客户暂无竞对情报数据。</p>
+            </div>
+          ) : (
+            <>
+              <div className="compare-columns">
+                {competitorData.map(({ profile, intel }) => (
+                  <div key={profile.id} className="compare-col">
+                    <h3>{profile.name}</h3>
+                    {intel && (
+                      <>
+                        <div className="compare-col-section">
+                          <small>竞对品牌（{intel.competitors.length}）</small>
+                          <table className="compare-table competitor-mini-table">
+                            <thead>
+                              <tr>
+                                <th>品牌</th>
+                                <th>类型</th>
+                                <th>定位</th>
+                                <th>价格带</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {intel.competitors.map((c) => (
+                                <tr key={c.name}>
+                                  <td><strong>{c.name}</strong></td>
+                                  <td>{c.competitorType}</td>
+                                  <td className="compare-desc">{c.positioning}</td>
+                                  <td>{c.priceBand || "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="compare-col-section">
+                          <small>优势 / 劣势</small>
+                          {intel.competitors.map((c) => (
+                            <div key={c.name} style={{ marginBottom: 8 }}>
+                              <p style={{ fontWeight: 600, fontSize: "13px" }}>{c.name}</p>
+                              <p style={{ fontSize: "12.5px", color: "var(--ok)" }}>优势：{c.strengths.join("、")}</p>
+                              <p style={{ fontSize: "12.5px", color: "var(--warn-ink)" }}>劣势：{c.weaknesses.join("、")}</p>
+                            </div>
+                          ))}
+                        </div>
+                        {intel.trendSignals.length > 0 && (
+                          <div className="compare-col-section">
+                            <small>趋势信号</small>
+                            <ul className="risk-list">
+                              {intel.trendSignals.map((t, i) => (
+                                <li key={i}>
+                                  <b>{t.topic}</b>{" "}
+                                  <span style={{
+                                    fontWeight: 700,
+                                    color: t.direction === "上升" ? "var(--ok)" : t.direction === "下降" ? "var(--warn-ink)" : "var(--muted)",
+                                  }}>{trendArrow(t.direction)} {t.direction}</span>
+                                  <br />
+                                  <span style={{ fontSize: "12px", color: "var(--muted)" }}>{t.description}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {commonTrendSignals.length > 0 && (
+                <div className="compare-insight">
+                  <div className="compare-insight-block common">
+                    <h4><Equal size={15} /> 共同趋势信号</h4>
+                    {commonTrendSignals.map((t, i) => (
+                      <p key={i} className="compare-tag-row">
+                        <span><b>{t.topic}</b>{" "}
+                          <em style={{
+                            fontStyle: "normal",
+                            fontWeight: 700,
+                            color: t.direction === "上升" ? "var(--ok)" : t.direction === "下降" ? "var(--warn-ink)" : "var(--muted)",
+                          }}>{trendArrow(t.direction)} {t.direction}</em>
+                        </span>
+                        <small style={{ color: "var(--muted)" }}>（{[...new Set(t.customers)].join("、")}）</small>
+                        <br />
+                        <small>{t.description}</small>
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

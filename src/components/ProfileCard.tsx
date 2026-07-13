@@ -1,9 +1,10 @@
-import { Database, Globe, Loader2, MessageSquareText, Sparkles } from "lucide-react"
+import { Crosshair, Database, Globe, Loader2, MessageSquareText, Sparkles } from "lucide-react"
 import type { ApiConfig, CustomerProfile, CustomerTrend, IntelResult } from "../types"
 import { brandIntel } from "../data/brandIntel"
 import { TrendSection } from "./TrendSection"
 import { intelSourceLabel, safeHost, srcClass } from "../utils/helpers"
 import { userReviewSignalsOf } from "../utils/customerReviews"
+import { competitorIntelOf } from "../utils/competitorIntel"
 
 type DataSource = "erp" | "master-only" | "none" | "loading" | "error"
 
@@ -39,6 +40,7 @@ export function ProfileCard({
   trend,
 }: ProfileCardProps) {
   const brand = brandIntel[customer.id]
+  const competitors = competitorIntelOf(customer.id)
   const sourceLabel = intelSourceLabel(intelSource)
   const reviewSignals = userReviewSignalsOf(customer)
   const verifiedReviewCount = reviewSignals.filter((review) => review.status === "verified").length
@@ -63,6 +65,23 @@ export function ProfileCard({
       <p>{value || "—"}</p>
     </div>
   )
+  const channelStyle = (channel?: string): { background: string; color: string } | undefined => {
+    if (!channel) return undefined
+    const styles: Record<string, { background: string; color: string }> = {
+      "电商": { background: "#dbeafe", color: "#1e40af" },
+      "社媒": { background: "#fce7f3", color: "#9d174d" },
+      "评测站": { background: "#dcfce7", color: "#166534" },
+      "官网": { background: "#f3f4f6", color: "#374151" },
+      "ERP": { background: "#f3f4f6", color: "#374151" },
+      "其他": { background: "#f5f5f5", color: "#666" },
+    }
+    return styles[channel] ?? styles["其他"]
+  }
+  const trendArrow = (direction: string) => {
+    if (direction === "上升") return "↑"
+    if (direction === "下降") return "↓"
+    return "→"
+  }
 
   const erpLabel = dataSource === "erp" ? "ERP" : "示例"
   const mergedTags = [...new Set(
@@ -158,16 +177,34 @@ export function ProfileCard({
             {reviewSignals.slice(0, 2).map((review) => (
               <article key={`${review.source}-${review.designAction}`} className={`review-data-card review-status-${review.status}`}>
                 <div className="review-data-title">
-                  {review.sourceUrl ? (
-                    <a href={review.sourceUrl} target="_blank" rel="noreferrer">{review.source}</a>
-                  ) : (
-                    <span>{review.source}</span>
-                  )}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    {review.sourceUrl ? (
+                      <a href={review.sourceUrl} target="_blank" rel="noreferrer">{review.source}</a>
+                    ) : (
+                      <span>{review.source}</span>
+                    )}
+                    {review.channel && (
+                      <em
+                        style={{
+                          padding: "2px 7px",
+                          borderRadius: 999,
+                          fontSize: "11px",
+                          fontWeight: 600,
+                          lineHeight: 1.3,
+                          fontStyle: "normal",
+                          ...channelStyle(review.channel),
+                        }}
+                      >
+                        {review.channel}
+                      </em>
+                    )}
+                  </span>
                   <em className={`conf conf-${review.confidence}`}>可信度 {review.confidence}</em>
                 </div>
                 <div className="review-meta">
                   <span>{reviewStatusLabel(review.status)}</span>
                   <span>{review.productScope}</span>
+                  {review.collectedAt && <span>采集于 {review.collectedAt}</span>}
                 </div>
                 <p><b>样本：</b>{review.sampleLabel}</p>
                 <p><b>好评点：</b>{review.praised.join("、") || "待采集真实商品评价"}</p>
@@ -233,6 +270,65 @@ export function ProfileCard({
             {tile("代表品类", brand.signatureProducts.join("、"))}
             {tile("趋势方向", brand.trendNotes)}
           </div>
+        </div>
+      )}
+
+      {competitors && competitors.competitors.length > 0 && (
+        <div className="brand-intel competitor-intel">
+          <div className="brand-intel-head">
+            <Crosshair size={15} />
+            <strong>竞对情报</strong>
+            <span className={`conf conf-${competitors.confidence}`}>可信度 {competitors.confidence}</span>
+            {competitors.collectedAt && (
+              <span style={{ marginLeft: "auto", color: "var(--muted)", fontSize: "12px" }}>采集于 {competitors.collectedAt}</span>
+            )}
+          </div>
+          {competitors.source && (
+            <p className="brand-line">来源：{competitors.source}</p>
+          )}
+          <div className="info-grid">
+            {competitors.competitors.map((c) => (
+              <div className="info-tile competitor-tile" key={c.name}>
+                <span>
+                  {c.name}
+                  <em style={{
+                    marginLeft: 6,
+                    padding: "2px 7px",
+                    borderRadius: 999,
+                    fontSize: "10.5px",
+                    fontWeight: 600,
+                    fontStyle: "normal",
+                    background: c.competitorType === "同类定位" ? "var(--accent-tint)" : "var(--warn-bg)",
+                    color: c.competitorType === "同类定位" ? "var(--accent-deep)" : "var(--warn-ink)",
+                  }}>{c.competitorType}</em>
+                </span>
+                <p>{c.positioning}</p>
+                <p style={{ fontSize: "13px", color: "var(--muted)" }}>
+                  价格带：{c.priceBand || "—"}{c.segment ? `　|　${c.segment}` : ""}
+                </p>
+                <p style={{ fontSize: "13px", color: "var(--ok)" }}>优势：{c.strengths.join("、")}</p>
+                <p style={{ fontSize: "13px", color: "var(--warn-ink)" }}>劣势：{c.weaknesses.join("、")}</p>
+              </div>
+            ))}
+          </div>
+          {competitors.trendSignals.length > 0 && (
+            <div className="design-directions" style={{ marginTop: 14 }}>
+              <strong>趋势信号</strong>
+              <ul>
+                {competitors.trendSignals.map((t, i) => (
+                  <li key={i}>
+                    <b>{t.topic}</b>{" "}
+                    <em style={{
+                      fontStyle: "normal",
+                      fontWeight: 700,
+                      color: t.direction === "上升" ? "var(--ok)" : t.direction === "下降" ? "var(--warn-ink)" : "var(--muted)",
+                    }}>{trendArrow(t.direction)} {t.direction}</em>
+                    {" — "}{t.description}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 

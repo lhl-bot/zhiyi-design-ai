@@ -34,6 +34,50 @@ export interface UserReviewSignal {
   designAction: string
   confidence: "高" | "中" | "低"
   notes?: string[]
+  channel?: "官网" | "社媒" | "电商" | "评测站" | "ERP" | "其他"
+  collectedAt?: string // ISO日期，追踪数据时效性
+}
+
+/** 竞对品牌 */
+export interface CompetitorBrand {
+  name: string
+  origin?: string
+  website?: string
+  segment?: string
+  positioning: string
+  priceBand?: string
+  signatureProducts?: string[]
+  strengths: string[]
+  weaknesses: string[]
+  competitorType: "同类定位" | "快时尚对标"
+}
+
+/** 设计趋势信号 */
+export interface TrendSignal {
+  topic: string
+  direction: "上升" | "稳定" | "下降"
+  description: string
+  applicableCustomers?: string[]
+  source?: string
+}
+
+/** 市场销售数据 */
+export interface MarketData {
+  metric: string
+  value: string
+  unit?: string
+  period?: string
+  source?: string
+}
+
+/** 竞对情报聚合 */
+export interface CompetitorIntel {
+  competitors: CompetitorBrand[]
+  trendSignals: TrendSignal[]
+  marketData?: MarketData[]
+  source?: string
+  collectedAt?: string
+  confidence: "高" | "中" | "低"
 }
 
 export interface CustomerProfile {
@@ -54,6 +98,7 @@ export interface CustomerProfile {
   externalSignals: ExternalSignal[]
   userReviews?: UserReviewSignal[]
   risks: string[]
+  competitorIntel?: CompetitorIntel
 }
 
 export interface GenerationSettings {
@@ -64,6 +109,8 @@ export interface GenerationSettings {
   targetPrice: string
   mustHave: string
   avoid: string
+  imageSize?: "2K" | "4K"
+  useSketchControl?: boolean
 }
 
 export interface ApiConfig {

@@ -357,3 +357,41 @@ export function getTechSketchDataURL(look: GeneratedLook, customer?: CustomerPro
   const svg = buildTechSketchSVG(look, customer)
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
 }
+
+/**
+ * 把技术线稿 SVG 栅格化为 PNG data URL（结构控制参考图用）
+ * 火山方舟不接受 SVG data URI，必须转成位图才能作为参考图传入
+ */
+export function getTechSketchPngDataURL(
+  look: GeneratedLook,
+  customer?: CustomerProfile,
+  width = 1024,
+  height = 1280
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const svg = buildTechSketchSVG(look, customer)
+      const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+      const img = new Image()
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas")
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext("2d")
+          if (!ctx) { resolve(null); return }
+          ctx.fillStyle = "#ffffff"
+          ctx.fillRect(0, 0, width, height)
+          ctx.drawImage(img, 0, 0, width, height)
+          resolve(canvas.toDataURL("image/png"))
+        } catch {
+          resolve(null)
+        }
+      }
+      img.onerror = () => resolve(null)
+      img.src = svgUrl
+    } catch {
+      resolve(null)
+    }
+  })
+}

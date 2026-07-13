@@ -3,6 +3,7 @@ import type { BrandIntel } from "../data/brandIntel"
 import { getTechSketchDataURL } from "./techSketch"
 import { SCORE_THRESHOLD, CATEGORY_REGEX, ACCESSORY_REGEX, FABRIC_REGEX, CRAFT_REGEX } from "../constants"
 import { reviewSummaryForPrompt, userReviewSignalsOf, verifiedUserReviewSignalsOf } from "../utils/customerReviews"
+import { trendSignalsForPrompt, competitorSummaryForPrompt } from "../utils/competitorIntel"
 
 // ─── 品类词库（按大类分组，确保每批款式覆盖不同品类）────────────────────
 const nounsByCategory: Record<string, string[]> = {
@@ -88,6 +89,18 @@ const styleToCategory: Record<string, string[]> = {
   "度假": [...nounsByCategory.dresses.slice(2, 6), ...nounsByCategory.tops.slice(7, 12), ...nounsByCategory.bottoms.slice(5, 9)],
   "户外基础": nounsByCategory.outerwear.slice(0, 6),
   "年轻": [...nounsByCategory.tops.slice(3, 8), ...nounsByCategory.bottoms.slice(3, 6), ...nounsByCategory.dresses.slice(8, 12)],
+  // 新增：覆盖更多客户风格标签，减少回退全量词库的概率
+  "防风面料": nounsByCategory.outerwear.slice(0, 6),
+  "多口袋": [...nounsByCategory.outerwear.slice(1, 5), ...nounsByCategory.bottoms.slice(2, 6)],
+  "棉麻感": [...nounsByCategory.dresses.slice(0, 4), ...nounsByCategory.tops.slice(0, 4)],
+  "丹宁": nounsByCategory.bottoms.slice(0, 5),
+  "卫衣套装": [...nounsByCategory.sets, ...nounsByCategory.tops.slice(2, 6)],
+  "宽松廓形": [...nounsByCategory.dresses.slice(0, 3), ...nounsByCategory.tops.slice(0, 4), ...nounsByCategory.bottoms.slice(0, 3)],
+  "运动混搭": [...nounsByCategory.tops.slice(3, 8), ...nounsByCategory.bottoms.slice(3, 7)],
+  "基础爆款": [...nounsByCategory.tops.slice(0, 5), ...nounsByCategory.bottoms.slice(0, 5)],
+  "温柔中性色": [...nounsByCategory.dresses.slice(0, 4), ...nounsByCategory.tops.slice(0, 4)],
+  "低调细节": [...nounsByCategory.dresses.slice(0, 3), ...nounsByCategory.tops.slice(0, 3)],
+  "针织": [...nounsByCategory.tops.slice(4, 8), ...nounsByCategory.dresses.slice(2, 6)],
 }
 
 export interface ErpContext {
@@ -149,30 +162,300 @@ function colorFor(customer: CustomerProfile, erp?: ErpContext | null): string {
     || firstUseful(customer.colorDirection, "品牌核心色")
 }
 
+/** 获取多个不同面料，用于设计方向间差异化（不同方向用不同面料）*/
+function materialsFor(customer: CustomerProfile, erp?: ErpContext | null, count = 4): string[] {
+  const latest = latestTrendYear(erp)
+  const fromTrend = latest?.fabrics?.map((f) => f.name).filter(Boolean) ?? []
+  const fromSummary = erp?.summary?.topFabrics?.map((f) => f.name).filter(Boolean) ?? []
+  const fromProfile = customer.fabricPreference.split(/[、,，；;]/).map((t) => t.trim()).filter(Boolean)
+  const combined = [...fromTrend, ...fromSummary, ...fromProfile]
+  const uniq = [...new Set(combined)]
+  if (uniq.length === 0) return ["梭织功能面料"]
+  return uniq.slice(0, Math.max(count, uniq.length))
+}
+
+/** 获取多个不同色彩，用于设计方向间差异化 */
+function colorsFor(customer: CustomerProfile, erp?: ErpContext | null, count = 4): string[] {
+  const latest = latestTrendYear(erp)
+  const fromTrend = latest?.colors?.map((c) => c.name).filter(Boolean) ?? []
+  const fromSummary = erp?.summary?.topColors?.map((c) => c.name).filter(Boolean) ?? []
+  const fromProfile = customer.colorDirection.split(/[、,，；;]/).map((t) => t.trim()).filter(Boolean)
+  const combined = [...fromTrend, ...fromSummary, ...fromProfile]
+  const uniq = [...new Set(combined)]
+  if (uniq.length === 0) return ["品牌核心色"]
+  return uniq.slice(0, Math.max(count, uniq.length))
+}
+
 function clip(text: string, max: number): string {
   const t = String(text ?? "").trim()
   return t.length > max ? t.slice(0, max) + "…" : t
 }
 
+// ─── 中文面料/工艺术语 → 英文映射（提升模型面料质感还原）────────────
+const fabricTermMap: Record<string, string> = {
+  "华达呢": "gabardine", "涅纶": "polyester", "涤纶": "polyester", "棉": "cotton", "纯棉": "pure cotton",
+  "有机棉": "organic cotton", "重磅棉": "heavyweight cotton", "羊毛": "wool", "羊毛混纺": "wool blend",
+  "亚麻": "linen", "棉麻": "cotton-linen blend", "真丝": "silk", "丝": "silk", "醋酸": "acetate",
+  "雪纺": "chiffon", "乔其纱": "georgette", "牛仔": "denim", "灯芯绒": "corduroy",
+  "摇粒绒": "polar fleece", "抓绒": "fleece", "珊瑚绒": "coral fleece", "羊绒": "cashmere",
+  "针织": "knit", "罗纹": "rib knit", "府绸": "poplin", "斜纹": "twill", "帆布": "canvas",
+  "氨纶": "spandex", "弹力": "stretch", "粘胶": "viscose", "天丝": "tencel", "莫代尔": "modal",
+  "尼龙": "nylon", "软壳": "softshell", "羽绒": "down", "混纺": "blend", "缎": "satin",
+  "蕾丝": "lace", "鹿皮": "suede", "皮革": "leather", "卡其": "khaki twill", "提花": "jacquard",
+  "泡泡纱": "seersucker", "华尔纱": "voile", "卡子": "double-faced wool", "双面呢": "double-faced wool",
+  "唵啡": "cotton jersey", "卫衣布": "french terry", "水洗": "washed", "成衣染": "garment dyed",
+  "再生涤纶": "recycled polyester", "复合面料": "composite fabric", "功能面料": "performance fabric",
+  "防泼水": "water-repellent", "速干": "quick-dry", "磨毛": "brushed", "涂层": "coated",
+  "弹力棉": "stretch cotton", "石墨烯": "graphene-infused", "防水透湿膜": "waterproof breathable membrane",
+  "锦纶": "nylon", "PU涂层": "PU coated",
+}
+
+/** 把中文面料名转换为英文术语（命中则替换，未命中保留原词）*/
+function toEnglishFabric(name: string): string {
+  const trimmed = String(name ?? "").trim()
+  if (!trimmed) return ""
+  // 完全匹配优先
+  if (fabricTermMap[trimmed]) return fabricTermMap[trimmed]
+  // 子串包含匹配（按键长降序，避免短词误中）
+  for (const key of Object.keys(fabricTermMap).sort((a, b) => b.length - a.length)) {
+    if (trimmed.includes(key)) return fabricTermMap[key]
+  }
+  return trimmed
+}
+
+// ─── 中文工艺细节术语 → 英文映射（避免中文词混入英文 prompt 段）────────────
+const detailTermMap: Record<string, string> = {
+  // closure
+  "暗门襟拉链": "concealed placket zipper", "双排金属扣": "double-breasted metal buttons",
+  "隐藏式按扣": "hidden snap fasteners", "斜开襟拉链": "diagonal placket zipper",
+  "绑带式门襟": "wrap tie front", "中式盘扣": "Chinese knot button", "磁吸隐形扣": "magnetic hidden clasp",
+  // pocket
+  "立体工装贴袋": "3D cargo patch pocket", "斜插拉链口袋": "angled zip pocket",
+  "立体风琴袋": "3D accordion pocket", "隐藏侧缝口袋": "hidden side seam pocket",
+  "翻盖按扣胸袋": "flap snap chest pocket", "拼接双层口袋": "spliced double-layer pocket",
+  // collar
+  "翻领拼接": "lapel splice", "可立可翻两用领": "convertible collar",
+  "尖角衬衫领": "pointed shirt collar", "中式小立领": "mandarin collar",
+  "无领圆领口": "collarless round neck", "不对称翻领": "asymmetrical lapel",
+  "飘带领结": "ribbon tie collar",
+  // sleeve
+  "落肩超长袖": "drop-shoulder elongated sleeve", "可调节袖袢": "adjustable sleeve tab",
+  "灯笼袖收口": "lantern sleeve with cuff", "弧形袖窿": "curved armhole",
+  "卷边袖口": "rolled cuff", "插肩袖拼接": "raglan sleeve splice",
+  // hem
+  "弧形前短后长下摆": "curved high-low hem", "抽绳调节下摆": "drawstring adjustable hem",
+  "开衩圆摆": "slit round hem", "松紧收口下摆": "elastic hem",
+  "不规则毛边下摆": "irregular raw-edge hem",
+  // texture
+  "细腻针织肌理": "fine knit texture", "斜纹帆布质感": "twill canvas texture",
+  "仿醋酸垂感": "acetate-like drape", "水洗做旧触感": "washed vintage texture",
+  "摇粒绒柔软面": "polar fleece soft surface", "泡泡纱立体感": "seersucker 3D texture",
+  "天丝柔滑光泽": "tencel smooth luster",
+  // functional
+  "可拆卸帽子": "detachable hood", "内置防风袖口": "built-in windproof cuff",
+  "透气孔细节": "ventilation hole detail", "反光嵌条": "reflective trim",
+  "内袋分隔系统": "internal pocket divider system",
+  // constructionWords
+  "三针五线加固": "3-needle 5-thread reinforcement", "来去缝净边工艺": "french seam finish",
+  "包边收口": "bound edge finish", "双明线装饰": "double topstitch detail",
+  "压胶无缝拼接": "taped seamless joint", "滚边包缝": "bias bound seam",
+  "法式缝份": "french seam allowance", "链式平缝": "chain stitch flat seam",
+  "三角打枣加固": "triangle bartack reinforcement", "人字车缝": "zigzag stitch",
+  "贴边内收": "faced inward curve", "撞色包边": "contrast binding",
+  "隐线暗缝": "hidden blind stitch", "锁链绣装饰线": "chain embroidery detail",
+}
+
+/** 把中文工艺细节词转换为英文术语（命中则替换，未命中保留原词）*/
+function toEnglishDetail(name: string): string {
+  const trimmed = String(name ?? "").trim()
+  if (!trimmed) return ""
+  // 完全匹配优先
+  if (detailTermMap[trimmed]) return detailTermMap[trimmed]
+  // 子串包含匹配（按键长降序，避免短词误中）
+  for (const key of Object.keys(detailTermMap).sort((a, b) => b.length - a.length)) {
+    if (trimmed.includes(key)) return detailTermMap[key]
+  }
+  return trimmed
+}
+
+// ─── 中文色名 → 英文映射（避免中文词混入英文 prompt 段）────────────────────
+const colorTermMap: Record<string, string> = {
+  "深松绿": "deep pine green", "岩灰": "stone gray", "深海军蓝": "deep navy blue", "苔绿": "moss green",
+  "暖咖": "warm coffee brown", "栗棕": "chestnut brown", "米白": "off-white", "雾粉": "misty pink",
+  "燕麦": "oatmeal", "墨蓝": "ink blue", "酒红": "burgundy", "巧克力色": "chocolate brown",
+  "卡其": "khaki", "橄榄绿": "olive green", "炭灰": "charcoal gray", "鼠尾草绿": "sage green",
+  "莓果色": "berry tone", "宝蓝": "royal blue", "铁锈红": "rust red", "钴蓝": "cobalt blue",
+  "藏青": "navy", "军绿": "army green", "姜黄": "turmeric yellow", "藕粉": "lotus pink",
+  "豆绿": "bean green", "杏色": "apricot", "雾蓝": "misty blue", "砖红": "brick red",
+  "墨绿": "dark green", "驼色": "camel", "灰蓝": "grayish blue", "粉灰": "dusty pink",
+  "银灰": "silver gray", "奶白": "cream white", "深灰": "dark gray", "浅灰": "light gray",
+  "藏蓝": "navy blue", "黑": "black", "白": "white", "灰": "gray", "蓝": "blue", "绿": "green",
+  "红": "red", "棕": "brown", "黄": "yellow", "驼": "camel", "军": "military",
+}
+
+/** 把中文色名转换为英文术语（命中则替换，未命中保留原词；支持整句子串替换）*/
+function toEnglishColor(name: string): string {
+  const trimmed = String(name ?? "").trim()
+  if (!trimmed) return ""
+  // 完全匹配优先
+  if (colorTermMap[trimmed]) return colorTermMap[trimmed]
+  // 子串匹配替换（按键长降序，避免短词误中），替换所有匹配项，未匹配部分保留原词
+  let result = trimmed
+  for (const key of Object.keys(colorTermMap).sort((a, b) => b.length - a.length)) {
+    if (result.includes(key)) {
+      result = result.split(key).join(colorTermMap[key])
+    }
+  }
+  return result
+}
+
+// ─── 创意强度 → 英文引导词（seedream 不支持 guidance_scale，改用提示词引导）──
+function creativityGuidance(creativity: number): string {
+  if (creativity <= 2) return "Strictly adhere to the design specification, faithful reproduction of brand style, no creative deviation, conservative and production-ready."
+  if (creativity <= 4) return "Faithful adherence to the design specification with minimal creative refinement, staying close to brand identity."
+  if (creativity <= 6) return "Balanced interpretation of the design specification with moderate creative refinement."
+  if (creativity <= 7) return "Creative interpretation of the design specification with refined experimental elements and modern styling."
+  return "Bold creative interpretation, experimental silhouette and unexpected detail combinations while staying wearable and producible."
+}
+
+// ─── 客户市场定位中文关键词 → 英文（注入 prompt 英文强权重区）────────────
+const marketTermMap: Record<string, string> = {
+  "女装": "women's wear", "男装": "men's wear", "童装": "children's wear", "中性": "unisex",
+  "日本": "Japanese", "日系": "Japanese", "北美": "North American", "美式": "American",
+  "欧洲": "European", "欧美": "European & American", "韩国": "Korean", "韩系": "Korean",
+  "国内": "domestic Chinese", "中国": "Chinese", "东南亚": "Southeast Asian", "澳洲": "Australian",
+  "简约": "minimalist", "极简": "minimalist", "休闲": "casual", "户外": "outdoor",
+  "机能": "techwear", "商务": "business", "通勤": "commuter", "运动": "sporty athleisure",
+  "时尚": "fashion-forward", "轻奢": "affordable luxury", "快时尚": "fast fashion",
+  "潮流": "trendy streetwear", "街头": "streetwear", "优雅": "elegant", "轻熟": "sophisticated",
+  "度假": "resort", "工装": "workwear", "复古": "vintage", "设计师": "designer",
+}
+
+/** 把客户市场定位中文转英文关键词串（命中则替换，未命中保留原词）*/
+function marketToEnglish(market: string): string {
+  const trimmed = String(market ?? "").trim()
+  if (!trimmed) return "fashion brand"
+  const hits: string[] = []
+  for (const key of Object.keys(marketTermMap).sort((a, b) => b.length - a.length)) {
+    if (trimmed.includes(key) && !hits.includes(marketTermMap[key])) hits.push(marketTermMap[key])
+  }
+  return hits.length ? hits.join(" ") : trimmed
+}
+
+// ─── 品类中文 → 英文主体名词（注入 Design 段作为强约束）──────────────────
+const categoryToEnglish: Record<string, string> = {
+  "夹克": "jacket", "马甲": "vest", "连衣裙": "dress", "衬衫": "shirt",
+  "长裤": "trousers", "套装": "coordinated set", "风衣": "trench coat",
+  "卫衣": "hoodie", "户外裤": "outdoor technical pants", "针织套头": "knit pullover",
+  "羽绒服": "down jacket", "软壳": "softshell jacket", "西装": "tailored blazer",
+  "大衣": "overcoat", "外套": "coat",
+}
+
+// ─── 品类 → nounsByCategory 大类键（品类词库过滤兜底）────────────────────
+const categoryToGroup: Record<string, keyof typeof nounsByCategory> = {
+  "夹克": "outerwear", "风衣": "outerwear", "羽绒服": "outerwear", "软壳": "outerwear",
+  "大衣": "outerwear", "西装": "outerwear", "外套": "outerwear",
+  "马甲": "tops", "衬衫": "tops", "卫衣": "tops", "针织套头": "tops",
+  "连衣裙": "dresses", "长裤": "bottoms", "户外裤": "bottoms", "套装": "sets",
+}
+
+// ─── 中文色名 → 近似 HEX（配色对齐客户 colorDirection）────────────────────
+const colorHexMap: Record<string, string> = {
+  "米白": "#f0ebe0", "奶白": "#f5f1e8", "奶油": "#f3ead6", "燕麦": "#d9cdb8",
+  "雾粉": "#e6d0cb", "藕粉": "#e3c3c0", "粉灰": "#d8c5c2", "浅灰": "#d0d0cf",
+  "银灰": "#c4c8cc", "深灰": "#4a4a4a", "炭灰": "#36363a", "灰蓝": "#8fa3ad",
+  "雾蓝": "#a9bcc4", "墨蓝": "#22303f", "藏青": "#1f2a44", "藏蓝": "#1f2a44",
+  "钴蓝": "#2a4d8f", "宝蓝": "#274690", "巧克力": "#4a3228", "栗棕": "#5a3c2c",
+  "暖咖": "#5c4433", "驼色": "#b08d57", "卡其": "#b5a06e", "橄榄绿": "#6b6b3a",
+  "军绿": "#4b5320", "墨绿": "#2e4437", "松绿": "#1f2d2a", "苔绿": "#6f7a4a",
+  "酒红": "#6d232f", "铁锈红": "#9c4a34", "砖红": "#a4472e", "莓果": "#7a2f45",
+  "姜黄": "#d9a441", "杏色": "#f0d5b8", "黑": "#1a1a1a", "白": "#f7f7f7",
+  "灰": "#9a9a9a", "蓝": "#3a5a80", "绿": "#4a6b4a", "红": "#a23a3a",
+  "棕": "#6b4a30", "黄": "#d9b84a", "粉": "#e8c4c4", "紫": "#6a5a7a", "橙": "#d97a3a",
+}
+
+/** 中文色名 → HEX（完全匹配优先，其次子串匹配；未命中返回空串）*/
+function zhColorToHex(name: string): string {
+  const trimmed = String(name ?? "").trim()
+  if (!trimmed) return ""
+  if (colorHexMap[trimmed]) return colorHexMap[trimmed]
+  for (const key of Object.keys(colorHexMap).sort((a, b) => b.length - a.length)) {
+    if (trimmed.includes(key)) return colorHexMap[key]
+  }
+  return ""
+}
+
+/** 按客户 colorDirection 生成 3 色配色板，不足时用季节色板补齐，seed 轮转差异化 */
+function paletteForCustomer(customer: CustomerProfile, season: string, seed: number): string[] {
+  const names = String(customer.colorDirection ?? "")
+    .split(/[、,，；;。\/\s]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+  let hexes: string[] = []
+  for (const name of names) {
+    const hex = zhColorToHex(name)
+    if (hex && !hexes.includes(hex)) hexes.push(hex)
+  }
+  // seed 轮转差异化：不同款式从不同起点取色，避免雷同
+  if (hexes.length > 1) {
+    const offset = Math.abs(seed) % hexes.length
+    hexes = [...hexes.slice(offset), ...hexes.slice(0, offset)]
+  }
+  // 用季节色板补齐到 3 色
+  const result = [...hexes]
+  for (const c of pickPalette(season, seed)) {
+    if (result.length >= 3) break
+    if (!result.includes(c)) result.push(c)
+  }
+  return result.slice(0, 3)
+}
+
 // ─── 挑选适合该客户的出款品类词 ─────────────────────────────────────────
-function pickNounsForCustomer(customer: CustomerProfile, settings: GenerationSettings, count: number): string[] {
-  // 先按客户风格标签匹配品类
+function pickNounsForCustomer(customer: CustomerProfile, settings: GenerationSettings, count: number, nonce?: number): string[] {
+  // 先按客户风格标签匹配品类（精确 + 子串模糊匹配）
   let pool: string[] = []
   for (const tag of customer.styleTags) {
-    const matched = styleToCategory[tag]
-    if (matched) { pool = pool.concat(matched) }
+    // 精确匹配优先
+    if (styleToCategory[tag]) { pool = pool.concat(styleToCategory[tag]); continue }
+    // 子串模糊匹配：标签包含映射 key 或 key 包含标签
+    for (const key of Object.keys(styleToCategory)) {
+      if (tag.includes(key) || key.includes(tag)) {
+        pool = pool.concat(styleToCategory[key])
+      }
+    }
+  }
+  // 从客户代表款式中反推品类偏好，作为补充池
+  if (pool.length < count) {
+    for (const s of customer.representativeStyles) {
+      const cat = (s.category || "").toLowerCase()
+      if (cat.includes("jacket") || cat.includes("coat") || cat.includes("outer") || cat.includes("vest")) {
+        pool = pool.concat(nounsByCategory.outerwear)
+      } else if (cat.includes("dress") || cat.includes("skirt")) {
+        pool = pool.concat(nounsByCategory.dresses)
+      } else if (cat.includes("pant") || cat.includes("jean") || cat.includes("bottom")) {
+        pool = pool.concat(nounsByCategory.bottoms)
+      } else if (cat.includes("set") || cat.includes("suit")) {
+        pool = pool.concat(nounsByCategory.sets)
+      } else if (cat) {
+        pool = pool.concat(nounsByCategory.tops)
+      }
+    }
   }
   // 没匹配到则用全量
   if (pool.length < count) pool = pool.concat(allNouns)
   // 如果用户指定了品类，限定在该品类
   if (settings.category !== "自动匹配") {
-    pool = pool.filter((n) => n.includes(settings.category))
-    if (pool.length < count) pool = allNouns.filter((n) => n.includes(settings.category))
+    const cat = settings.category
+    let filtered = pool.filter((n) => n.includes(cat))
+    if (filtered.length < count) filtered = allNouns.filter((n) => n.includes(cat))
+    // 词库无字面命中（如长裤/户外裤/针织套头/软壳/羽绒服）时，按大类取词兜底，保证 title 品类正确且非空
+    if (filtered.length === 0 && categoryToGroup[cat]) filtered = [...nounsByCategory[categoryToGroup[cat]]]
+    if (filtered.length) pool = filtered
   }
   // 去重 + shuffle
   const uniq = [...new Set(pool)]
-  // 用客户 id 做种子保证同客户同批次结果稳定，但不同客户不同
-  const seed = hash(customer.id + settings.season)
+  // 用客户 id + nonce 做种子，nonce 保证不同批次结果不同
+  const seed = hash(customer.id + settings.season + String(nonce ?? ""))
   return shuffleSeed(seed, uniq).slice(0, Math.max(count, uniq.length))
 }
 
@@ -181,26 +464,31 @@ function fallbackDesignDirections(
   customer: CustomerProfile,
   settings: GenerationSettings,
   count: number,
-  erp?: ErpContext | null
+  erp?: ErpContext | null,
+  nonce?: number
 ): string[] {
-  const material = materialFor(customer, erp)
-  const color = colorFor(customer, erp)
+  // 多面料/多色彩轮转：不同方向使用不同面料和色彩，消除雷同
+  const materials = materialsFor(customer, erp, 8)
+  const colors = colorsFor(customer, erp, 8)
+  const crafts = customer.erpInsight?.craftFocus?.length
+    ? [...customer.erpInsight.craftFocus]
+    : ["压胶工艺", "精致包边", "暗线缝制", "明线装饰", "激光切割", "拼接工艺"]
   const brand = erp?.brand
   const season = settings.season
   const isAW = season.includes("AW") || season.includes("FW")
-  const craft = customer.erpInsight?.craftFocus?.[0] || pick(["压胶工艺", "精致包边", "暗线缝制", "明线装饰", "激光切割", "拼接工艺"], hash(customer.id))
 
-  // 7 种不同的设计方向模板，每次随机选 count 种排列
-  const templates = [
+  // 8 种不同的设计方向模板，每个模板接受序号 i 用于面料/色彩/工艺轮转
+  const templates: Array<(i: number) => string> = [
     // 面料质地主导
-    () => `${material} + ${customer.fabricPreference.split(/[、,，]/)[0] || "品牌核心面料"}混搭，用${craft}工艺突出质感层次，${isAW ? "深色底+金属辅料点缀" : "浅色底+自然材质辅料"}。`,
+    (i) => `${materials[i % materials.length]} + ${customer.fabricPreference.split(/[、,，]/)[0] || "品牌核心面料"}混搭，用${crafts[i % crafts.length]}工艺突出质感层次，${isAW ? "深色底+金属辅料点缀" : "浅色底+自然材质辅料"}。`,
     // 廓形创新
     () => `${customer.silhouette}基础上的${isAW ? "解构重组" : "松弛延伸"}，保留品牌辨识度同时增加${season}流行廓形元素。`,
     // 色彩叙事
-    () => `以${color}为主调，${isAW ? "加入暖调大地色做层次过渡" : "搭配柔和亮色或自然中性色"}，形成${season}系列色卡逻辑。`,
+    (i) => `以${colors[i % colors.length]}为主调，${isAW ? "加入暖调大地色做层次过渡" : "搭配柔和亮色或自然中性色"}，形成${season}系列色卡逻辑。`,
     // 品类深挖
-    () => {
-      const product = customer.erpInsight?.materialFocus?.[0] || customer.styleTags[0] || "核心品类"
+    (i) => {
+      const focusList = customer.erpInsight?.materialFocus ?? []
+      const product = focusList[i % Math.max(1, focusList.length)] || customer.styleTags[0] || "核心品类"
       return `${product}品类深度开发：在${customer.styleTags.slice(0, 2).join("和")}风格基础上，做${season}的${isAW ? "面料升级版" : "轻量化版本"}。`
     },
     // 场景驱动
@@ -209,9 +497,9 @@ function fallbackDesignDirections(
       return `面向${scene}场景：设计可多场合适配的${isAW ? "保暖层搭" : "清凉通勤"}单品，一件满足${isAW ? "从室外到室内" : "从办公室到社交"}的切换需求。`
     },
     // 趋势响应
-    () => {
+    (i) => {
       const trend = seasonTrends[season]?.detail || "当季流行元素"
-      return `呼应当季趋势（${trend}），结合客户历史数据中验证过的${material}和${color}方向。`
+      return `呼应当季趋势（${trend}），结合客户历史数据中验证过的${materials[(i + 1) % materials.length]}和${colors[(i + 2) % colors.length]}方向。`
     },
     // 数据驱动（如果有 ERP 数据则引用）
     () => {
@@ -220,17 +508,19 @@ function fallbackDesignDirections(
       return `基于客户历史订单表现：${customer.erpInsight?.orderTrend || "稳定品类"}；${priceNote}，优先做${customer.erpInsight?.repeatOrderSignal || "返单信号强的品类"}。`
     },
     // 差异化尝试
-    () => `在客户舒适区边缘做一次谨慎试探：保留${customer.styleTags.slice(0, 2).join("+")}基底，用${season}新面料/新辅料做${customer.styleTags.length > 3 ? customer.styleTags[3] : "细节升级"}。`,
+    (i) => `在客户舒适区边缘做一次谨慎试探：保留${customer.styleTags.slice(0, 2).join("+")}基底，用${season}新面料/新辅料做${customer.styleTags.length > 3 ? customer.styleTags[3] : "细节升级"}。`,
   ]
 
-  const seed = hash(customer.id + settings.season + settings.creativity.toString())
+  const seed = hash(customer.id + settings.season + settings.creativity.toString() + String(nonce ?? ""))
   const shuffled = shuffleSeed(seed, templates.map((_, i) => i.toString()))
-  const picked = shuffled.slice(0, Math.max(count, 6)).map((idx) => templates[Number(idx)]())
+  const picked = shuffled.slice(0, Math.max(count, 6)).map((idx, ord) => templates[Number(idx)](ord))
   // 确保不重复；不足时从第二轮填充
   const uniq = [...new Set(picked)]
-  while (uniq.length < count) {
-    const extra = templates[uniq.length % templates.length]()
+  let fillIdx = uniq.length
+  while (uniq.length < count && fillIdx < 100) {
+    const extra = templates[fillIdx % templates.length](fillIdx)
     if (!uniq.includes(extra)) uniq.push(extra)
+    fillIdx++
   }
   return uniq
 }
@@ -291,12 +581,16 @@ function pickPalette(season: string, seed: number): string[] {
 }
 
 // ─── 挑选细节（从不同类型各取一个，确保维度丰富）────────────────────
-function pickKeyDetails(seed: number, count = 5): string[] {
-  const types = Object.keys(detailsByType)
+function pickKeyDetails(seed: number, count = 5, customer?: CustomerProfile): string[] {
   const picked: string[] = []
+  // 优先纳入客户专属工艺特征（erpInsight.craftFocus），确保不同客户细节天然不同
+  if (customer?.erpInsight?.craftFocus?.length) {
+    picked.push(...customer.erpInsight.craftFocus.slice(0, 3))
+  }
   // 每款至少保证：闭合方式、口袋、领型、面料肌理 + 一个随机维度
   const priority = ["closure", "pocket", "collar", "texture", "sleeve", "hem", "functional"]
   for (const type of priority) {
+    if (picked.length >= count) break
     const pool = detailsByType[type]
     if (pool) picked.push(pool[seed % pool.length])
     seed = seed * 31 + 7
@@ -351,6 +645,8 @@ function buildExternalBlurb(customer: CustomerProfile, erp?: ErpContext | null):
     if (i.designDirections?.length) parts.push(`设计方向建议：${i.designDirections.join("；")}`)
   }
   if (erp?.website) parts.push(`品牌官网：${erp.website}`)
+  const trendSignals = trendSignalsForPrompt(customer.id)
+  if (trendSignals) parts.push(`竞对趋势：${trendSignals}`)
   return parts.length ? parts.join("。") + "。" : ""
 }
 
@@ -399,6 +695,8 @@ export function buildLookImagePrompt(opts: {
     ? "请参考品牌官网产品图的版型、面料质感、做工风格基调，在此基础上设计一款全新的款式（不是复制参考图）。"
     : ""
   const category = settings.category === "自动匹配" ? "服装" : settings.category
+  const categoryEn = settings.category !== "自动匹配" ? (categoryToEnglish[settings.category] || settings.category) : "garment"
+  const identityLine = `Brand context: "${customer.name}", ${marketToEnglish(customer.market)}, clear target customer and positioning. `
   const fusion = mode === "参考图融合" && referenceNote ? `参考上传图融入其廓形、情绪与比例（${referenceNote}）。` : ""
   const mainColor = look.palette?.[0] ? `，主色调 ${look.palette[0]}` : ""
   const intel = erp?.intel
@@ -408,8 +706,8 @@ export function buildLookImagePrompt(opts: {
     ? latestYear.fabrics.slice(0, 3).map((f) => f.name).join("、")
     : customer.fabricPreference
   const colors = latestYear?.colors?.length
-    ? latestYear.colors.slice(0, 3).map((c) => c.name).join("、")
-    : customer.colorDirection
+    ? latestYear.colors.slice(0, 3).map((c) => toEnglishColor(c.name)).join(", ")
+    : toEnglishColor(customer.colorDirection)
   const { tag: genderTag, model } = genderModel(erp?.brand?.gender, hash(look.id), look.keyDetails.length)
   const genderLead = genderTag ? `${genderTag}，` : ""
   const brief = look.designDirection
@@ -420,25 +718,69 @@ export function buildLookImagePrompt(opts: {
   const seasonNote = seasonTrends[settings.season]
   const reviewText = reviewSummaryForPrompt(customer)
   const verifiedReviewCount = verifiedUserReviewSignalsOf(customer).length
-  const reviewDirective = reviewText
+  let reviewDirective = reviewText
     ? `用户评价与采集状态：${clip(reviewText, 220)}；${verifiedReviewCount ? "已采集评价作为强约束，回应差评痛点并保留好评点。" : ""}待采集/主体确认信息作为弱约束和核验提醒，不要虚构用户痛点。`
     : ""
   const sourceContext = buildExternalBlurb(customer, erp)
-  const sourceDirective = sourceContext ? `综合数据辅助：${clip(sourceContext, 220)}` : ""
-  // 增强生图质量的关键段落
-  return [
-    `Professional fashion product photography. ${genderLead}「${customer.name}」${settings.season} ${genderTag}${category}。`,
+  let sourceDirective = sourceContext ? `综合数据辅助：${clip(sourceContext, 220)}` : ""
+  const competitorSummary = competitorSummaryForPrompt(customer.id)
+  let competitorDirective = competitorSummary ? `竞对情报：${competitorSummary}；` : ""
+  // 面料触感增强词：中文面料名转英文术语，提升模型质感还原
+  const fabricTextureHints = latestYear?.fabrics?.length
+    ? `${latestYear.fabrics.slice(0, 2).map((f) => toEnglishFabric(f.name)).join(" and ")} fabric with visible weave texture, natural drape`
+    : "premium fabric with visible texture and natural drape"
+  // 创意强度引导词（B项：seedream 不支持 guidance_scale，改用提示词层面控制）
+  const creativityLine = creativityGuidance(settings.creativity)
+  // 构建上下文暗区（不影响画面但告知模型背景）
+  let contextSection = [sourceDirective, competitorDirective].filter(Boolean).join("")
+  // 设计硬约束（必须保留 / 避免方向 / 目标价格）——界面显式输入，最高优先级，不参与超限截断
+  const constraintDirective = buildConstraintBlurb(settings)
+  // 增强生图质量的关键段落——英文前置，中文数据后置
+  // ─── prompt 预算管理：确保总长度不超过 3000 字符（服务端 3200 上限留 200 余量）──
+  const MAX_PROMPT = 3000
+  const buildParts = () => [
+    // 第1段：视觉风格（纯英文，模型最敏感的区域）
+    `High-end fashion e-commerce product photography, ${genderTag ? genderTag + " " : ""}${settings.season} collection. `,
+    identityLine,
+    `Design: a ${categoryEn} — ${look.title || look.designDirection?.slice(0, 60) || customer.styleTags.slice(0, 2).join(" ")}, ${fabricTextureHints}. `,
+    `Silhouette: ${customer.silhouette}, refined modern proportions, commercially producible pattern cutting. `,
+    `${creativityLine} `,
+    // 第2段：细节构造（英文，精确描述工艺）
+    `Garment construction: clean front view, clearly defined collar neckline placket closure, `,
+    `${look.keyDetails?.filter(Boolean).slice(0, 3).map(toEnglishDetail).join(", ") || "functional pocket details, structured seams"}, `,
+    `visible topstitching and seam lines, professional finishing on cuffs and hem. `,
+    // 第3段：色调面料（中英混合，数据驱动）
+    `${aesthetic}Style: ${customer.styleTags.slice(0, 4).join("/")}. `,
+    `Color palette: ${colors}${mainColor}. ${trendLine}`,
+    // 第4段：品牌/趋势上下文（中文，给模型语义理解但不主导画面）
+    `${genderLead}「${customer.name}」（${customer.market}，定位：${clip(customer.positioning, 40)}）${settings.season} ${category}。${brief}。${seasonNote?.mood ? `当季语境：${seasonNote.mood}。` : ""}`,
     brandRefLead,
-    `${brief}。当季设计语境：${seasonNote?.mood || ""}。`,
-    `${aesthetic}风格标签：${customer.styleTags.slice(0, 4).join("、")}；廓形：${customer.silhouette}；色彩：${colors}${mainColor}；面料：${fabrics}。`,
-    trendLine,
+    // 设计硬约束（必须保留 / 避免方向 / 目标价格）——用户界面显式输入，作为强指引
+    constraintDirective,
+    // 第5段：评价/竞对约束（中文，作为辅助指引）
     reviewDirective,
-    sourceDirective,
+    contextSection,
     fusion,
-    `Garment design requirements: Fully realized wearable garment, clean front silhouette, clearly defined collar/placket/pockets/cuffs/hem with visible seam lines and stitching details, commercially producible pattern cutting, refined modern proportions.`,
-    `Image specifications: ${model} full-body front view on seamless white or very light gray studio background, even soft diffused professional lighting, fabric texture and drape clearly visible, crisp focus, high-end e-commerce editorial quality, subtle shadow on floor for depth.`,
-    `Negative: no text, no letters, no logos, no watermarks, no brand marks, no UI elements, no extra limbs, no cropped body parts, no distorted hands/feet, no random straps/buckles, no fantasy armor, no busy background, no harsh shadows.`
+    // 第6段：画面规格（英文）
+    `${model} full-body front view on seamless white or very light gray studio background, `,
+    `even soft diffused professional lighting highlighting fabric texture and drape, `,
+    `crisp focus, subtle shadow on floor for depth, editorial lookbook quality, ${settings.imageSize ?? "2K"} resolution.`,
+    // 第7段：负面约束（英文，NEW——增强版）
+    `Negative: no text, no letters, no logos, no watermarks, no brand marks, no UI elements, `,
+    `no human face close-up, no extra limbs, no cropped body parts, no distorted hands or feet, `,
+    `no random straps or buckles, no fantasy armor, no busy or cluttered background, no harsh shadows, no overexposure.`
   ].filter(Boolean).join("")
+  let fullPrompt = buildParts()
+  if (fullPrompt.length > MAX_PROMPT) {
+    // 超限时缩减低优先级中文段
+    reviewDirective = clip(reviewDirective, 120)
+    fullPrompt = buildParts()
+  }
+  if (fullPrompt.length > MAX_PROMPT) {
+    contextSection = [sourceDirective ? clip(sourceDirective, 80) : "", competitorDirective ? clip(competitorDirective, 80) : ""].filter(Boolean).join("")
+    fullPrompt = buildParts()
+  }
+  return fullPrompt
 }
 
 // ─── 线稿图专出提示词 ──────────────────────────────────────────────────
@@ -584,14 +926,17 @@ export async function generateLooks(opts: {
   const isLineArt = mode === "线稿图"
   const count = isLineArt ? 1 : settings.count
 
+  // 确定性 nonce：同一客户同一参数产生相同 nonce → 相同 prompt → 相同 seed → 可复现
+  const nonce = hash(customer.id + settings.season + settings.creativity.toString() + (settings.category || ""))
+
   // 设计方向：AI 联网分析优先，否则用增强版 fallback
   const directions = erp?.intel?.designDirections?.filter(Boolean).length
     ? erp.intel.designDirections.filter(Boolean)
-    : fallbackDesignDirections(customer, settings, count, erp)
+    : fallbackDesignDirections(customer, settings, count, erp, nonce)
 
   // 品类词：用户指定品类 > 风格匹配 > 全量
-  const nouns = pickNounsForCustomer(customer, settings, count)
-  const seedBase = hash(customer.id + settings.season + settings.creativity.toString())
+  const nouns = pickNounsForCustomer(customer, settings, count, nonce)
+  const seedBase = hash(customer.id + settings.season + settings.creativity.toString() + String(nonce))
 
   return Array.from({ length: count }, (_, index) => {
     const seed = seedBase + index * 137
@@ -608,10 +953,10 @@ export async function generateLooks(opts: {
         ? `${customer.name} ${directionTitle(direction)}`
         : `${customer.name} ${pick([isAW ? "质感" : "轻量", isAW ? "层次" : "松弛", isAW ? "解构" : "通透"], seed)}${noun}`
 
-    const palette = isLineArt ? ["#ffffff", "#1a1a1a", "#f5f5f5"] : pickPalette(settings.season, seed)
+    const palette = isLineArt ? ["#ffffff", "#1a1a1a", "#f5f5f5"] : paletteForCustomer(customer, settings.season, seed)
     const keyDetails = isLineArt
       ? ["技术线稿", "可编辑参考", "黑白款式图"]
-      : pickKeyDetails(seed, 5)
+      : pickKeyDetails(seed, 5, customer)
 
     // 评分：基于品类匹配度 + 创意强度 + 数据成熟度加权
     const directionLen = direction?.length ?? 0
@@ -684,7 +1029,7 @@ export async function generateIteratedLook(opts: {
 
   const title = `${customer.name} ${directionTitle(modification) || baseLook.title.replace(/^.*?\s/, "")} V${newVersion}`
   const palette = pickPalette(settings.season, seedBase)
-  const keyDetails = pickKeyDetails(seedBase, 5)
+  const keyDetails = pickKeyDetails(seedBase, 5, customer)
 
   const baseScore = 70 + (seedBase % 20)
   const trendScore = Math.min(99, baseScore - 2 + ((seedBase * 7) % 12))
@@ -756,35 +1101,42 @@ export function compareLookWithHistory(opts: {
   const topFabrics = erpSummary?.topFabrics?.map((f) => f.name) ?? []
   const topColors = erpSummary?.topColors?.map((c) => c.name) ?? []
   const recentOrders = erpSummary?.recentOrders ?? []
-  const representativeStyles = customer.representativeStyles.filter((s) => s.isRepeatOrder)
+  // 优先用返单代表款作为历史基线；无返单标记时退回全部代表款，保证基线非空
+  const repRepeat = customer.representativeStyles.filter((s) => s.isRepeatOrder)
+  const representativeStyles = repRepeat.length ? repRepeat : customer.representativeStyles
 
-  // 1. 品类匹配：检查款式标题或细节是否包含历史订单品类关键词
+  const lookGarmentClass = garmentClass(look.title)
+
+  // 1. 品类匹配：按品类大类（garmentClass）或款名双向子串判定，避免中文整词全等失配
   const lookCategoryText = look.title + " " + look.keyDetails.join(" ")
   const historyCategories = recentOrders.map((o) => String(o.ProductName || o.StyleName || o.Category || "")).filter(Boolean)
   const repStyleNames = representativeStyles.map((s) => s.title)
   const allHistoryNames = [...historyCategories, ...repStyleNames]
-  const categoryKeywords = extractKeywords(lookCategoryText)
-  const matchedStyles = allHistoryNames.filter((name) => {
-    const nameKeywords = extractKeywords(name)
-    return nameKeywords.some((k) => categoryKeywords.includes(k))
-  })
+  const matchedStyles = allHistoryNames.filter(
+    (name) => garmentClass(name) === lookGarmentClass || looseOverlap(look.title, name)
+  )
   const categoryMatch = matchedStyles.length > 0
 
-  // 2. 面料重合度：检查客户面料偏好是否在款式细节中提及
-  const lookFabricText = look.keyDetails.join(" ") + " " + (look.designDirection || "")
-  const fabricKeywords = topFabrics.length ? topFabrics : customer.fabricPreference.split(/[、,，]/).filter(Boolean)
-  const matchedFabrics = fabricKeywords.filter((f) => lookFabricText.includes(f.split(/[\s(（]/)[0])).map((f) => f)
+  // 2. 面料重合度：客户/ERP 高频面料与款名+细节+设计方向做中文感知子串匹配
+  const lookFabricText = [look.title, ...look.keyDetails, look.designDirection || ""].join(" ")
+  const fabricKeywords = topFabrics.length ? topFabrics : customer.fabricPreference.split(/[、,，；;]/).map((s) => s.trim()).filter(Boolean)
+  const matchedFabrics = fabricKeywords.filter((f) => looseOverlap(lookFabricText, f))
   const fabricOverlap = fabricKeywords.length ? matchedFabrics.length / fabricKeywords.length : 0
 
-  // 3. 色彩重合度：检查调色板是否与历史高频色匹配
-  const colorNames = topColors.length ? topColors : customer.colorDirection.split(/[、,，]/).filter(Boolean)
-  const lookColorText = look.keyDetails.join(" ") + " " + look.palette.join(" ")
-  const matchedColors = colorNames.filter((c) => lookColorText.includes(c.split(/[\s(（]/)[0]))
+  // 3. 色彩重合度：调色板存的是 HEX，故把色名转 HEX 与 palette 比对（palette 亦由 colorDirection 转来），并兜底文本匹配
+  const colorNames = topColors.length ? topColors : customer.colorDirection.split(/[、,，；;。\/\s]+/).map((s) => s.trim()).filter(Boolean)
+  const paletteSet = new Set(look.palette.map((h) => h.toLowerCase()))
+  const lookColorText = look.keyDetails.join(" ") + " " + look.title
+  const matchedColors = colorNames.filter((c) => {
+    const hex = zhColorToHex(c)
+    if (hex && paletteSet.has(hex.toLowerCase())) return true
+    return looseOverlap(lookColorText, c)
+  })
   const colorOverlap = colorNames.length ? matchedColors.length / colorNames.length : 0
 
-  // 4. 廓形相似度：基于 garmentClass 匹配
-  const lookGarmentClass = garmentClass(look.title)
-  const silhouetteMatch = customer.silhouette.includes(lookGarmentClass) || lookCategoryText.includes(customer.silhouette)
+  // 4. 廓形相似度：以款式品类大类是否落在客户历史/代表款的品类大类内判定，并兜底 silhouette 文本重合
+  const historyGarmentClasses = new Set(allHistoryNames.map((n) => garmentClass(n)))
+  const silhouetteMatch = historyGarmentClasses.has(lookGarmentClass) || looseOverlap(customer.silhouette, look.title)
 
   // 综合评分
   const scores = [
@@ -807,9 +1159,18 @@ export function compareLookWithHistory(opts: {
   }
 }
 
-function extractKeywords(text: string): string[] {
-  const cleaned = text.replace(/[（）()【】\[\]{}""''：:，,。.、；;！!？?]/g, " ")
-  return cleaned.split(/\s+/).filter((w) => w.length >= 2)
+// 中文感知的宽松重合判定：任一方为另一方子串，或存在共享的 2 字片段（bigram）即视为重合
+function looseOverlap(a: string, b: string): boolean {
+  const s1 = String(a ?? "").trim()
+  const s2 = String(b ?? "").trim()
+  if (!s1 || !s2) return false
+  if (s1.includes(s2) || s2.includes(s1)) return true
+  const shortStr = s1.length <= s2.length ? s1 : s2
+  const longStr = s1.length <= s2.length ? s2 : s1
+  for (let i = 0; i + 2 <= shortStr.length; i++) {
+    if (longStr.includes(shortStr.slice(i, i + 2))) return true
+  }
+  return false
 }
 
 // ─── 成本估算引擎 ─────────────────────────────────────────────────────────

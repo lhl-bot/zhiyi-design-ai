@@ -1,6 +1,7 @@
 import type { CostEstimate, CustomerProfile, ErpCustomerSummary, GeneratedLook, TechPackData, UserReviewSignal } from "../types"
 import { CATEGORY_REGEX, ACCESSORY_REGEX, FABRIC_REGEX, CRAFT_REGEX } from "../constants"
 import { userReviewSignalsOf } from "./customerReviews"
+import { competitorIntelOf } from "./competitorIntel"
 
 /** HTML 实体转义，防止 XSS */
 function escapeHtml(value: string): string {
@@ -33,8 +34,38 @@ function formatReviewExport(customer: CustomerProfile) {
     const praise = review.praised.length ? review.praised.join("、") : "待采集真实商品评价"
     const pain = review.painPoints.length ? review.painPoints.join("、") : "待采集真实商品评价"
     const source = review.sourceUrl ? `${review.source} ${review.sourceUrl}` : review.source
-    return `${source}（${reviewStatusText(review.status)}，${reviewPromptWeightText(review.status)}，${review.sampleLabel}）；好评点：${praise}；痛点：${pain}；设计动作：${review.designAction}`
+    const channelTag = review.channel ? `[${review.channel}]` : ""
+    return `${source}${channelTag}（${reviewStatusText(review.status)}，${reviewPromptWeightText(review.status)}，${review.sampleLabel}）；好评点：${praise}；痛点：${pain}；设计动作：${review.designAction}`
   }).join(" / ")}`
+}
+
+function formatCompetitorExport(customerId: string): string {
+  const intel = competitorIntelOf(customerId)
+  if (!intel || intel.competitors.length === 0) return ""
+
+  const competitorLines = intel.competitors.map((c) =>
+    `- **${c.name}**（${c.competitorType}）：${c.positioning}；价格带：${c.priceBand || "—"}；优势：${c.strengths.join("、")}；劣势：${c.weaknesses.join("、")}`
+  )
+
+  const trendLines = intel.trendSignals.length > 0
+    ? [
+        "",
+        "### 趋势信号",
+        ...intel.trendSignals.map((t) =>
+          `- **${t.topic}** ${t.direction}：${t.description}${t.source ? `（来源：${t.source}）` : ""}`
+        ),
+      ]
+    : []
+
+  return [
+    "## 竞对情报",
+    "",
+    `> 可信度：${intel.confidence}${intel.collectedAt ? `　|　采集于 ${intel.collectedAt}` : ""}${intel.source ? `　|　${intel.source}` : ""}`,
+    "",
+    "### 竞对品牌",
+    ...competitorLines,
+    ...trendLines,
+  ].join("\n")
 }
 
 export function buildMarkdownExport({
@@ -48,8 +79,9 @@ export function buildMarkdownExport({
   const totalCost = looks.reduce((sum, look) => sum + look.estimatedCost, 0)
   const reviewLooks = looks.filter((look) => (look.reviewStatus ?? (look.selected ? "入选" : "待看")) !== "淘汰")
   const reviewExport = formatReviewExport(customer)
+  const competitorExport = formatCompetitorExport(customer.id)
 
-  return [
+  const sections = [
     `# ${customer.name} 设计评审包`,
     "",
     `生成时间：${new Date().toLocaleString("zh-CN", { hour12: false })}`,
@@ -83,8 +115,14 @@ export function buildMarkdownExport({
     "## 生成提示词",
     "",
     ...looks.map((look, index) => `${index + 1}. ${look.prompt}`),
-    ""
-  ].join("\n")
+    "",
+  ]
+
+  if (competitorExport) {
+    sections.push(competitorExport, "")
+  }
+
+  return sections.join("\n")
 }
 
 function suggestFabrics(customer: CustomerProfile, look: GeneratedLook): string[] {

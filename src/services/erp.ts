@@ -69,6 +69,7 @@ export async function fetchGenImages(payload: {
   prompt: string
   count: number
   size?: string
+  seed?: number
   referenceImage?: string
   arkKey?: string
   customerId?: string

@@ -37,7 +37,7 @@ export const ERP_API_PORT = 8787
 
 /** 默认 API 配置 */
 export const DEFAULT_API_CONFIG = {
-  provider: "local" as const,
+  provider: "ark" as const,
   endpoint: "",
   apiKey: "",
   intelSource: "hybrid" as const,
@@ -52,4 +52,6 @@ export const DEFAULT_GENERATION_SETTINGS = {
   targetPrice: "按客户历史价格带控制",
   mustHave: "保留客户核心风格、面料偏好和可生产工艺",
   avoid: "避免结构变形、过度复杂辅料、不可落地廓形",
+  imageSize: "2K" as "2K" | "4K",
+  useSketchControl: false,
 }
